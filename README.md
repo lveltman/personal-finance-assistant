@@ -143,7 +143,7 @@ Telegram User → Bot Server (aiogram) → Agent Orchestrator
 
 ## 📄 License
 
-MIT License — см. [LICENSE](LICENSE)
+License — см. [LICENSE](LICENSE)
 
 ---
 
