@@ -4,7 +4,7 @@
 
 ```mermaid
 C4Component
-    title C4 Component — Agent Orchestrator (LangGraph)
+    title C4 Component — Agent Orchestrator (LangGraph ReAct)
 
     Container_Ext(bot, "Telegram Bot Service")
     Container_Ext(local_llm, "Local LLM Runner")
@@ -13,85 +13,94 @@ C4Component
 
     Container_Boundary(orch, "Agent Orchestrator") {
 
-        Component(intent_router, "Intent Router",
-            "Python / keyword rules",
-            "Определяет тип запроса: set_limit / analyze / report / help / out-of-domain")
-
-        Component(domain_guard, "Domain Guard",
-            "Python / rules",
-            "Отклоняет запросы вне финансовой домены без вызова LLM")
-
-        Component(pii_masker, "PII Masker",
-            "Python / regex + spacy",
-            "Маскирует email, телефоны, адреса, номера карт перед передачей в LLM")
+        Component(pre_guard, "Pre-flight Guard",
+            "Python / rules (без LLM)",
+            "Rate limit, размер файла, domain check (явно не финансы → отказ), PII masking — всё до LLM")
 
         Component(context_builder, "Context Builder",
             "Python",
-            "Собирает system prompt + агрегаты трат + last N сообщений; контролирует token budget")
+            "Собирает AgentState: system prompt с tool definitions + агрегаты трат + история; контролирует token budget")
 
-        Component(llm_caller, "LLM Caller",
-            "Python / httpx async",
-            "Вызов локального LLM → fallback на API; retry (3x), timeout 15s")
+        Component(llm_node, "LLM Node",
+            "LangGraph / httpx async",
+            "Отправляет весь AgentState в LLM. LLM отвечает: tool_call {name, args} или финальный текст. Retry 3x, timeout 15s")
 
-        Component(output_validator, "Output Validator",
-            "Pydantic",
-            "Валидирует структурированные выходы LLM по схемам (LimitParams, CategoryLabel и др.)")
-
-        Component(tool_dispatcher, "Tool Dispatcher",
+        Component(tool_node, "Tool Node",
             "LangGraph ToolNode",
-            "Маршрутизирует tool-вызовы к нужному инструменту; обрабатывает ошибки инструментов")
+            "Исполняет tool_call от LLM. Результат добавляется в AgentState как ToolMessage и управление возвращается LLM")
 
         Component(state_manager, "State Manager",
             "Python",
-            "Читает/пишет сессию пользователя; разрешает конфликты лимитов")
+            "Читает/пишет сессию; разрешает конфликты лимитов; управляет pending confirmations")
 
         Component(response_builder, "Response Builder",
             "Jinja2 + markdown",
-            "Форматирует ответ для Telegram; генерирует inline-кнопки подтверждения")
+            "Форматирует финальный текст LLM для Telegram; добавляет inline-кнопки если нужно")
     }
 
-    Rel(bot, intent_router, "user_message + file")
-    Rel(intent_router, domain_guard, "если не распознан тип")
-    Rel(intent_router, pii_masker, "распознанный запрос")
-    Rel(pii_masker, context_builder, "очищенный контекст")
-    Rel(context_builder, llm_caller, "промпт в рамках бюджета")
-    Rel(llm_caller, local_llm, "inference")
-    Rel(llm_caller, output_validator, "raw LLM output")
-    Rel(output_validator, tool_dispatcher, "validated tool calls")
-    Rel(tool_dispatcher, state_manager, "read/write state")
-    Rel(state_manager, session_store, "persist")
-    Rel(tool_dispatcher, response_builder, "tool results")
+    Rel(bot, pre_guard, "user_message + file")
+    Rel(pre_guard, context_builder, "очищенное сообщение")
+    Rel(context_builder, llm_node, "AgentState (messages[])")
+    Rel(llm_node, local_llm, "inference request")
+    Rel(llm_node, tool_node, "tool_call {name, args}")
+    Rel(tool_node, state_manager, "read/write session")
+    Rel(state_manager, session_store, "persist JSON")
+    Rel(tool_node, llm_node, "ToolMessage с результатом (цикл)")
+    Rel(llm_node, response_builder, "финальный текст (нет tool_call)")
     Rel(response_builder, bot, "formatted response")
-    Rel(llm_caller, observability, "latency, tokens, cost")
+    Rel(llm_node, observability, "latency, tokens, tool_calls")
 ```
 
-## Граф состояний LangGraph
+## Граф состояний LangGraph (ReAct)
 
 ```
 START
   ↓
-[intent_router] ──→ out_of_domain ──→ [refusal] ──→ END
+[pre_flight_guard] ──→ rate_limit / out_of_domain / file_too_large
+  │                         ↓
+  │                    [refusal_node] ──→ END
   ↓
-[domain_guard] ──→ blocked ──→ [safety_response] ──→ END
+[context_builder]   ← загружает AgentState из Session Storage
   ↓
-[pii_masker]
-  ↓
-[context_builder]
-  ↓
-[llm_caller] ──→ error (3 retries) ──→ [fallback_response] ──→ END
-  ↓
-[output_validator] ──→ invalid ──→ [llm_caller] (retry, max 2)
-  ↓
-[tool_dispatcher]
-  ├── tool=categorize ──→ [Categorizer]
-  ├── tool=set_limit  ──→ [LimitEngine] ──→ confidence<0.8 ──→ [clarify_loop]
-  ├── tool=analyze    ──→ [LimitEngine + RecommendationEngine]
-  ├── tool=compare    ──→ [PriceComparator]
-  └── tool=report     ──→ [ReportGenerator]
-  ↓
-[state_manager]
+╔══════════════════════════════╗
+║   ReAct Loop                 ║
+║                              ║
+║  [llm_node]                  ║
+║     │                        ║
+║     ├── tool_call? ──→ [tool_node] ──→ добавить ToolMessage
+║     │                    │                      │
+║     │        ошибка инструмента?                │
+║     │          ↓ да                             │
+║     │      добавить error ToolMessage           │
+║     │                                           │
+║     └──────────────────────────────────────────┘
+║     │                        ↑ цикл
+║     └── финальный текст? ──→ выход из цикла
+║                              ║
+║  Stop conditions:            ║
+║  • нет tool_call в ответе    ║
+║  • достигнут max_steps (10)  ║
+║  • 3 ошибки LLM подряд       ║
+╚══════════════════════════════╝
   ↓
 [response_builder]
   ↓
+[state_manager] → сохранить историю в Session Storage
+  ↓
 END
 ```
+
+## Инструменты, доступные LLM
+
+LLM получает эти tool definitions в system prompt и сам решает что и когда вызвать:
+
+| Tool | Описание | Когда LLM вызывает |
+|------|----------|-------------------|
+| `load_transactions` | Получить транзакции пользователя из сессии | Когда нужны данные о тратах |
+| `categorize_transaction` | Определить категорию по merchant | При нечёткой категоризации |
+| `set_limit` | Установить лимит по категории и периоду | При явном запросе лимита |
+| `check_limits` | Проверить нарушения лимитов | При анализе трат |
+| `find_cheaper` | Найти альтернативу дешевле | При рекомендациях экономии |
+| `check_refund` | Проверить возможность возврата | При рекомендации возврата |
+| `get_report` | Получить агрегированный отчёт за период | При запросе отчёта |
+| `save_pending_confirmation` | Сохранить ожидающее подтверждение | При уверенности < 0.8 |

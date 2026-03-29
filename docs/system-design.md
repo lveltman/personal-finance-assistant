@@ -10,7 +10,7 @@
 | Решение | Выбор | Обоснование |
 |---------|-------|-------------|
 | **Канал доставки** | Telegram Bot (aiogram 3.x) | Zero-install, знакомый UX, поддержка файлов и inline-кнопок |
-| **Оркестрация агента** | LangGraph (ReAct-цикл) | Явный граф состояний, встроенный retry, легкий дебаггинг |
+| **Оркестрация агента** | LangGraph (ReAct Tool Calling) | LLM сам выбирает инструменты; явный граф ограничивает max_steps и stop conditions |
 | **LLM** | Локальная 7B (Qwen2.5 / Llama-3) + опциональный API fallback | Приватность по умолчанию; API как opt-in при нехватке качества |
 | **Категоризация** | Hybrid: keyword-rules → embedding-similarity → LLM fallback | Детерминированный путь для известных merchant'ов, LLM только для edge-case |
 | **Хранение сессий** | JSON-файлы на диске (PoC) | Без внешних зависимостей; миграция на Redis/SQLite — фаза 2 |
@@ -68,33 +68,39 @@
 ## 3. Основной Workflow
 
 ```
-[Пользователь] → отправляет файл .xlsx/.csv
+[Пользователь] → отправляет сообщение или файл .xlsx/.csv
        ↓
-[Bot] → получает file_id, скачивает файл
+[Bot] → передаёт в Orchestrator
        ↓
-[File Parser] → валидирует структуру, нормализует колонки
-       ↓ (ошибка → сообщение пользователю)
-[Categorizer] → keyword match → если нет → embedding similarity → если нет → LLM
+[Pre-flight Guard] → rate limit / file size / out-of-domain / PII masking
+       ↓ (нарушение → немедленный отказ без LLM)
+[Context Builder] → system prompt + tool definitions + агрегаты трат + история
        ↓
-[Session Storage] → сохраняет структурированные транзакции
-
-[Пользователь] → отправляет NL-сообщение («лимит 300₽ на кофе»)
+╔══════════════════════════════════════╗
+║  ReAct Loop (LLM управляет потоком)  ║
+║                                      ║
+║  [LLM Node] → думает что сделать     ║
+║       ↓                              ║
+║  tool_call? → [Tool Node] → результат║
+║       ↑___________________________|  ║
+║                                      ║
+║  финальный текст → выход из цикла    ║
+╚══════════════════════════════════════╝
        ↓
-[Agent Orchestrator] → определяет intent
-       ↓
-  ┌────┴─────────────────┐
-  │ intent=set_limit      │ intent=analyze  │ intent=report  │ out-of-domain
-  ↓                       ↓                 ↓                ↓
-[NL Limit Parser]       [Limit Engine]    [Report Gen]     [Refusal]
-  ↓                       ↓
-[confidence check]      [Recommendations]
-  ↓                       ↓
-  ≥0.8 → apply           [Price/Refund tools]
-  <0.8 → clarify
-       ↓
-[Report Generator] → markdown + inline-кнопки
+[Response Builder] → markdown + inline-кнопки
        ↓
 [Bot] → отправляет ответ
+```
+
+**Пример: «покажи перетраты на кофе»**
+```
+LLM: вызвать load_transactions(period="last_month")
+  → ToolMessage: список транзакций
+LLM: вызвать check_limits(category="Кофе")
+  → ToolMessage: {spent: 2100, limit: 300, violation: true}
+LLM: вызвать find_cheaper(category="Кофе")
+  → ToolMessage: [{name: "Бренд Z", price: 290, savings_pct: 31}]
+LLM: финальный текст "В марте на кофе потрачено 2100₽..."
 ```
 
 ---
