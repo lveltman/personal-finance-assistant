@@ -11,7 +11,7 @@
 |---------|-------|-------------|
 | **Канал доставки** | Telegram Bot (aiogram 3.x) | Zero-install, знакомый UX, поддержка файлов и inline-кнопок |
 | **Оркестрация агента** | LangGraph (ReAct Tool Calling) | LLM сам выбирает инструменты; явный граф ограничивает max_steps и stop conditions |
-| **LLM** | Mistral API (по умолчанию) → Qwen3.5-9B локально (fallback) | Mistral даёт лучшее качество; локальная модель — резерв при таймауте/ошибке API |
+| **LLM** | Mistral API (по умолчанию) → Qwen3.5-9B локально (fallback) | Mistral бесплатно для MVP — резерв при таймауте/ошибке API |
 | **Категоризация** | Hybrid: keyword-rules → embedding-similarity → LLM fallback | Детерминированный путь для известных merchant'ов, LLM только для edge-case |
 | **Хранение сессий** | JSON-файлы на диске (PoC) | Без внешних зависимостей; миграция на Redis/SQLite — фаза 2 |
 | **Арифметика** | Детерминированный Python (pandas) | LLM никогда не считает числа — только генерирует текст |
@@ -212,11 +212,11 @@ PoC использует **lightweight retrieval** без полноценног
 | **Uptime** | ≥ 95% | PoC; не production SLA |
 | **Max concurrent users** | 50 | Ограничение ресурсов сервера |
 | **Max file size** | 50 MB | Telegram Bot API ограничение |
-| **LLM context budget** | ≤ 3500 токенов | Оставить место для ответа 7B-модели |
+| **LLM context budget** | ≤ 3500 токенов | Оставить место для ответа модели |
 | **LLM calls per request** | ≤ 3 | Контроль стоимости и latency |
 | **Session storage TTL** | 7 дней | Баланс приватности и UX |
 | **Memory (server)** | < 2 GB | Ограничение PoC-инфраструктуры |
-| **LLM cost** (если API) | < $0.01 / запрос | GPT-4o-mini: ~$0.002 при 3500 токенов |
+| **LLM cost** | < $0.01 / запрос | Mistral medium: ~$0.005 при 3500 токенов |
 
 ---
 

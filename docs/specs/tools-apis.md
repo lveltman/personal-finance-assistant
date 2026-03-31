@@ -154,12 +154,12 @@ class TelegramResponse:
 
 | Параметр | Значение |
 |----------|----------|
-| URL | `https://api.mistral.ai/v1` (или `LLM_API_BASE_URL`) |
-| Auth | Bearer token из `LLM_API_KEY` env (секрет) |
+| URL | Хардкожен в `mistralai` SDK (указывать не нужно) |
+| Auth | `MISTRAL_API_KEY` env (секрет) |
 | Timeout | 30s |
 | Retry | 2 раза с backoff 1s, 2s |
 | Fallback при провале | Локальный Qwen3.5-9B |
-| Max cost per request | ~$0.003 (3500 токенов mistral-small) |
+| Max cost per request | ~$0.005 (3500 токенов mistral-medium) |
 
 ### Local LLM — Qwen3.5-9B (fallback)
 

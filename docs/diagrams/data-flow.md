@@ -84,7 +84,7 @@ flowchart TD
   "event": "llm_call",
   "user_hash": "a3f...8b2",
   "intent": "set_limit",
-  "model": "mistral-small-latest",
+  "model": "mistral-medium-latest",
   "input_tokens": 312,
   "output_tokens": 48,
   "latency_ms": 2340,

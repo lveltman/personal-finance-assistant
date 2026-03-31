@@ -23,7 +23,7 @@ python src/bot/main.py
 ```yaml
 services:
   bot:           # Telegram Bot + Agent Orchestrator
-  llm-runner:    # Ollama с Qwen2.5-7B
+  llm-runner:    # Ollama с Qwen3.5-9B
   prometheus:    # Метрики
   grafana:       # Дашборды
 ```
@@ -48,12 +48,11 @@ Volumes:
 
 | Переменная | Default | Описание |
 |-----------|---------|----------|
-| `LLM_PROVIDER` | `api` | `api` (Mistral, по умолчанию) или `local` (Qwen) |
-| `LLM_API_BASE_URL` | `https://api.mistral.ai/v1` | URL OpenAI-совместимого API |
-| `LLM_API_KEY` | — | API ключ Mistral (обязателен при `LLM_PROVIDER=api`) |
+| `LLM_PROVIDER` | `api` | `api` (Mistral SDK, по умолчанию) или `local` (Qwen через Ollama) |
+| `MISTRAL_API_KEY` | — | API ключ Mistral — обязателен при `LLM_PROVIDER=api`; URL указывать не нужно (SDK хардкодит его сам) |
 | `LLM_FALLBACK_PROVIDER` | `local` | Провайдер при ошибке основного; `local` или `none` |
-| `LLM_MODEL` | `mistral-small-latest` | Имя модели (Mistral) или имя модели в Ollama |
-| `LLM_FALLBACK_MODEL` | `qwen3.5:9b` | Модель для fallback (Ollama) |
+| `LLM_MODEL` | `mistral-medium-latest` | Имя модели (Mistral) или имя модели в Ollama |
+| `LLM_FALLBACK_MODEL` | `qwen3.5-9b` | Модель для fallback (Ollama) |
 | `LLM_TIMEOUT_S` | `15` | Таймаут LLM-запроса в секундах |
 | `MAX_FILE_SIZE_MB` | `50` | Максимальный размер файла |
 | `SESSION_TTL_DAYS` | `7` | TTL JSON-сессий |
@@ -72,7 +71,7 @@ Volumes:
 
 Никогда не коммитить в git:
 - `TELEGRAM_BOT_TOKEN`
-- `LLM_API_KEY`
+- `MISTRAL_API_KEY`
 - `PRICE_API_KEY` (если есть)
 
 Хранятся только в `.env` (добавлен в `.gitignore`).
@@ -85,8 +84,8 @@ Volumes:
 
 | Модель | Версия PoC | Параметры | RAM |
 |--------|-----------|-----------|-----|
-| Mistral API | mistral-small-latest | API (основной, по умолчанию) | — |
-| Qwen3.5 | 9B-Instruct-Q4_K_M | 9B (квантизованная, fallback) | ~6 GB |
+| Mistral API | mistral-medium-latest | API (основной, по умолчанию) | — |
+| Qwen3.5 | 9B | 9B (fallback) | ~6 GB |
 | sentence-transformers | paraphrase-multilingual-MiniLM-L12-v2 | 118M | ~450 MB |
 
 Переключить на локальный режим: `LLM_PROVIDER=local` в `.env`, убедиться что `llm-runner` запущен.
