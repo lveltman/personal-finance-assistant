@@ -11,7 +11,7 @@
 |---------|-------|-------------|
 | **Канал доставки** | Telegram Bot (aiogram 3.x) | Zero-install, знакомый UX, поддержка файлов и inline-кнопок |
 | **Оркестрация агента** | LangGraph (ReAct Tool Calling) | LLM сам выбирает инструменты; явный граф ограничивает max_steps и stop conditions |
-| **LLM** | Локальная 7B (Qwen2.5 / Llama-3) + опциональный API fallback | Приватность по умолчанию; API как opt-in при нехватке качества |
+| **LLM** | Mistral API (по умолчанию) → Qwen3.5-9B локально (fallback) | Mistral даёт лучшее качество; локальная модель — резерв при таймауте/ошибке API |
 | **Категоризация** | Hybrid: keyword-rules → embedding-similarity → LLM fallback | Детерминированный путь для известных merchant'ов, LLM только для edge-case |
 | **Хранение сессий** | JSON-файлы на диске (PoC) | Без внешних зависимостей; миграция на Redis/SQLite — фаза 2 |
 | **Арифметика** | Детерминированный Python (pandas) | LLM никогда не считает числа — только генерирует текст |
@@ -170,9 +170,9 @@ PoC использует **lightweight retrieval** без полноценног
 | Tool | Протокол | Timeout | Fallback |
 |------|----------|---------|----------|
 | **Telegram Bot API** | HTTPS webhook/polling | 60s (Telegram ограничение) | Long-polling при недоступности webhook |
-| **LLM API** (opt-in) | HTTPS REST (OpenAI-compatible) | 30s | Локальная модель |
+| **Mistral API** (основной LLM) | HTTPS REST (OpenAI-compatible) | 30s | Qwen3.5-9B локально |
+| **Local LLM** (Qwen3.5-9B, Ollama) | localhost REST | 15s | Детерминированный fallback + уведомление пользователю |
 | **Price Comparison API** | HTTPS REST | 5s | Оффлайн JSON-база |
-| **Local LLM** (Qwen2.5/Llama-3) | localhost gRPC/REST | 15s | Детерминированный fallback + уведомление |
 
 Все tool-вызовы — через изолированные async-функции с валидацией ответа (Pydantic).
 
@@ -183,7 +183,8 @@ PoC использует **lightweight retrieval** без полноценног
 ### Failure Modes
 | Сценарий | Вероятность | Обработка |
 |----------|-------------|-----------|
-| LLM недоступен / таймаут | Средняя | Fallback на rule-based; уведомить пользователя |
+| Mistral API таймаут / ошибка | Средняя | Fallback на локальный Qwen3.5-9B; прозрачно для пользователя |
+| Локальный Qwen недоступен (если Mistral уже упал) | Низкая | Fallback на rule-based + уведомление пользователя |
 | Некорректный формат файла | Высокая | Валидация в FileParser; понятное сообщение об ошибке |
 | NL-парсинг с низкой уверенностью | Средняя | Запрос подтверждения через inline-кнопки |
 | Price API недоступен | Средняя | Оффлайн-база с меткой «⚠️ Данные могут быть устаревшими» |

@@ -31,8 +31,8 @@ flowchart TD
         MET[("Metrics\nPrometheus TSDB\nTTL: 15 дней")]
     end
 
-    subgraph LLM_BOX["LLM (локальный / API)"]
-        LLM["Qwen2.5-7B\nвход: ≤3500 токенов\nвыход: ≤500 токенов"]
+    subgraph LLM_BOX["LLM (Mistral API → Qwen3.5-9B fallback)"]
+        LLM["Mistral API (основной)\nили Qwen3.5-9B локально\nвход: ≤3500 токенов\nвыход: ≤500 токенов"]
     end
 
     F --> FS --> FP --> CAT
@@ -84,7 +84,7 @@ flowchart TD
   "event": "llm_call",
   "user_hash": "a3f...8b2",
   "intent": "set_limit",
-  "model": "qwen2.5-7b",
+  "model": "mistral-small-latest",
   "input_tokens": 312,
   "output_tokens": 48,
   "latency_ms": 2340,

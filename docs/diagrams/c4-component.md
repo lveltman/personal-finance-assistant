@@ -23,7 +23,7 @@ C4Component
 
         Component(llm_node, "LLM Node",
             "LangGraph / httpx async",
-            "Отправляет весь AgentState в LLM. LLM отвечает: tool_call {name, args} или финальный текст. Retry 3x, timeout 15s")
+            "Отправляет весь AgentState в LLM. LLM отвечает: tool_call {name, args} или финальный текст. Mistral API → fallback Qwen3.5-9B. Retry 2x")
 
         Component(tool_node, "Tool Node",
             "LangGraph ToolNode",
@@ -41,7 +41,7 @@ C4Component
     Rel(bot, pre_guard, "user_message + file")
     Rel(pre_guard, context_builder, "очищенное сообщение")
     Rel(context_builder, llm_node, "AgentState (messages[])")
-    Rel(llm_node, local_llm, "inference request")
+    Rel(llm_node, local_llm, "fallback inference (если Mistral недоступен)")
     Rel(llm_node, tool_node, "tool_call {name, args}")
     Rel(tool_node, state_manager, "read/write session")
     Rel(state_manager, session_store, "persist JSON")
@@ -80,7 +80,7 @@ START
 ║  Stop conditions:            ║
 ║  • нет tool_call в ответе    ║
 ║  • достигнут max_steps (10)  ║
-║  • 3 ошибки LLM подряд       ║
+║  • Mistral + Qwen оба упали  ║
 ╚══════════════════════════════╝
   ↓
 [response_builder]

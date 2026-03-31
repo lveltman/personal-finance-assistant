@@ -8,7 +8,7 @@ C4Container
 
     Person(user, "Пользователь")
     System_Ext(telegram, "Telegram API")
-    System_Ext(llm_api, "LLM API (opt-in)")
+    System_Ext(llm_api, "Mistral API (основной LLM)")
     System_Ext(price_api, "Price API (opt-in)")
 
     Container_Boundary(pfa, "Personal Finance Assistant") {
@@ -19,8 +19,8 @@ C4Container
         Container(orchestrator, "Agent Orchestrator", "Python / LangGraph",
             "ReAct-цикл: планирование шагов, вызов инструментов, управление контекстом, retry/fallback")
 
-        Container(local_llm, "Local LLM Runner", "llama.cpp / Ollama",
-            "Запуск Qwen2.5-7B / Llama-3-8B локально; REST API на localhost")
+        Container(local_llm, "Local LLM Runner", "Ollama",
+            "Запуск Qwen3.5-9B локально; REST API на localhost; используется как fallback при недоступности Mistral API")
 
         Container(tool_layer, "Tool Layer", "Python async",
             "Изолированные инструменты: FileParser, Categorizer, LimitEngine, PriceComparator, RefundChecker, ReportGenerator")
@@ -36,8 +36,8 @@ C4Container
     Rel(telegram, bot, "Webhook POST / Long-polling")
     Rel(bot, orchestrator, "Parsed message + user context")
     Rel(orchestrator, tool_layer, "Tool calls")
-    Rel(orchestrator, local_llm, "LLM inference requests")
-    Rel(orchestrator, llm_api, "Fallback LLM calls (opt-in)", "HTTPS")
+    Rel(orchestrator, llm_api, "LLM inference (основной)", "HTTPS")
+    Rel(orchestrator, local_llm, "LLM inference (fallback при ошибке Mistral)")
     Rel(tool_layer, price_api, "Price lookup (opt-in)", "HTTPS")
     Rel(tool_layer, session_store, "Read / Write session")
     Rel(orchestrator, session_store, "Load / Save context")

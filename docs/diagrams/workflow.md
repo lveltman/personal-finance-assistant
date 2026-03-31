@@ -13,7 +13,7 @@ sequenceDiagram
     participant FP as File Parser
     participant Cat as Categorizer
     participant SS as Session Storage
-    participant LLM as Local LLM
+    participant LLM as Mistral API / Qwen3.5-9B (fallback)
     participant LE as Limit Engine
 
     U->>TG: Отправляет expenses_march.xlsx
@@ -86,22 +86,19 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    A[Запрос к LLM] --> B{Ответ за 15s?}
+    A[Запрос к Mistral API] --> B{Ответ за 30s?}
     B -->|Да| C[Нормальная обработка]
-    B -->|Timeout| D[Retry #1]
-    D --> E{Ответ за 15s?}
+    B -->|Timeout / 5xx| D[Retry #1 — 1s]
+    D --> E{Ответ?}
     E -->|Да| C
-    E -->|Timeout| F[Retry #2]
-    F --> G{Ответ за 15s?}
+    E -->|Нет| F[Retry #2 — 2s]
+    F --> G{Ответ?}
     G -->|Да| C
-    G -->|Timeout| H{Локальная модель?}
-    H -->|Да, это она| I[Rule-based fallback]
-    H -->|Нет, это API| J[Переключиться на локальную модель]
-    J --> K{Локальная доступна?}
-    K -->|Да| C
-    K -->|Нет| I
-    I --> L[Детерминированный ответ с пометкой ⚠️]
-    L --> M[Пользователь получает ответ с предупреждением]
+    G -->|Нет| H[Переключиться на Qwen3.5-9B локально]
+    H --> I{Qwen доступен?}
+    I -->|Да| C
+    I -->|Нет| J[Rule-based fallback]
+    J --> K[Детерминированный ответ + пометка ⚠️ AI временно недоступен]
 ```
 
 ## Ветка: out-of-domain запрос

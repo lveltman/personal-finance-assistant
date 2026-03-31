@@ -150,23 +150,24 @@ class TelegramResponse:
 | File download | `getFile` → HTTPS URL → скачать bytes |
 | Fallback | Long-polling если webhook недоступен |
 
-### Local LLM (Ollama REST)
+### Mistral API (основной LLM)
 
 | Параметр | Значение |
 |----------|----------|
-| URL | `http://localhost:11434/api/generate` |
-| Timeout | 15s (read); 5s (connect) |
-| Retry | 3 раза с backoff 1s, 2s, 4s |
-| Fallback | Rule-based + уведомление "⚠️ AI временно недоступен" |
-| Auth | Нет (localhost) |
-
-### LLM API (opt-in, OpenAI-compatible)
-
-| Параметр | Значение |
-|----------|----------|
-| URL | Настраивается через `LLM_API_BASE_URL` env |
+| URL | `https://api.mistral.ai/v1` (или `LLM_API_BASE_URL`) |
 | Auth | Bearer token из `LLM_API_KEY` env (секрет) |
 | Timeout | 30s |
-| Retry | 2 раза |
-| Fallback | Локальная модель |
-| Max cost per request | ~$0.01 (3500 токенов GPT-4o-mini) |
+| Retry | 2 раза с backoff 1s, 2s |
+| Fallback при провале | Локальный Qwen3.5-9B |
+| Max cost per request | ~$0.003 (3500 токенов mistral-small) |
+
+### Local LLM — Qwen3.5-9B (fallback)
+
+| Параметр | Значение |
+|----------|----------|
+| URL | `http://localhost:11434/api/generate` (Ollama) |
+| Timeout | 15s (read); 5s (connect) |
+| Retry | 1 раз |
+| Fallback при провале | Rule-based + уведомление "⚠️ AI временно недоступен" |
+| Auth | Нет (localhost) |
+| Когда используется | Mistral API недоступен / таймаут / HTTP 5xx |

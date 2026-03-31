@@ -48,10 +48,12 @@ Volumes:
 
 | Переменная | Default | Описание |
 |-----------|---------|----------|
-| `LLM_PROVIDER` | `local` | `local` или `api` |
-| `LLM_MODEL` | `qwen2.5:7b` | Имя модели в Ollama |
-| `LLM_API_BASE_URL` | — | URL OpenAI-совместимого API |
-| `LLM_API_KEY` | — | API ключ (если `LLM_PROVIDER=api`) |
+| `LLM_PROVIDER` | `api` | `api` (Mistral, по умолчанию) или `local` (Qwen) |
+| `LLM_API_BASE_URL` | `https://api.mistral.ai/v1` | URL OpenAI-совместимого API |
+| `LLM_API_KEY` | — | API ключ Mistral (обязателен при `LLM_PROVIDER=api`) |
+| `LLM_FALLBACK_PROVIDER` | `local` | Провайдер при ошибке основного; `local` или `none` |
+| `LLM_MODEL` | `mistral-small-latest` | Имя модели (Mistral) или имя модели в Ollama |
+| `LLM_FALLBACK_MODEL` | `qwen3.5:9b` | Модель для fallback (Ollama) |
 | `LLM_TIMEOUT_S` | `15` | Таймаут LLM-запроса в секундах |
 | `MAX_FILE_SIZE_MB` | `50` | Максимальный размер файла |
 | `SESSION_TTL_DAYS` | `7` | TTL JSON-сессий |
@@ -83,11 +85,12 @@ Volumes:
 
 | Модель | Версия PoC | Параметры | RAM |
 |--------|-----------|-----------|-----|
-| Qwen2.5 | 7B-Instruct-Q4_K_M | 7B (квантизованная) | ~5 GB |
-| Llama-3 (alt) | 8B-Instruct-Q4_K_M | 8B (квантизованная) | ~5 GB |
+| Mistral API | mistral-small-latest | API (основной, по умолчанию) | — |
+| Qwen3.5 | 9B-Instruct-Q4_K_M | 9B (квантизованная, fallback) | ~6 GB |
 | sentence-transformers | paraphrase-multilingual-MiniLM-L12-v2 | 118M | ~450 MB |
 
-Смена LLM: изменить `LLM_MODEL` в `.env`, перезапустить `llm-runner`.
+Переключить на локальный режим: `LLM_PROVIDER=local` в `.env`, убедиться что `llm-runner` запущен.
+Отключить fallback на локальную модель: `LLM_FALLBACK_PROVIDER=none` (в этом случае при ошибке API — rule-based ответ).
 
 ---
 
