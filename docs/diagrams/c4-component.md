@@ -3,52 +3,39 @@
 > Уровень: внутреннее устройство Agent Orchestrator — ядра системы.
 
 ```mermaid
-C4Component
-    title C4 Component — Agent Orchestrator (LangGraph ReAct)
+flowchart TB
+    Bot["📱 Telegram Bot Service\n(внешний контейнер)"]
+    LocalLLM["💻 Local LLM Runner\nQwen3.5-9B\n(внешний контейнер)"]
+    MistralAPI["🤖 Mistral API\n(внешний)"]
+    Storage[("🗄️ Session Storage\n(внешний контейнер)")]
+    Obs["📊 Observability\n(внешний контейнер)"]
 
-    Container_Ext(bot, "Telegram Bot Service")
-    Container_Ext(local_llm, "Local LLM Runner")
-    Container_Ext(session_store, "Session Storage")
-    Container_Ext(observability, "Observability")
+    subgraph Orch["Agent Orchestrator"]
+        Guard["🛡️ Pre-flight Guard\nPython / rules — без LLM\n──────────────────────\nRate limit, размер файла,\ndomain check, PII masking"]
 
-    Container_Boundary(orch, "Agent Orchestrator") {
+        CtxBuilder["📋 Context Builder\nPython\n──────────────────────\nSystem prompt + tool definitions\n+ агрегаты трат + история\nКонтроль token budget ≤3500"]
 
-        Component(pre_guard, "Pre-flight Guard",
-            "Python / rules (без LLM)",
-            "Rate limit, размер файла, domain check (явно не финансы → отказ), PII masking — всё до LLM")
+        LLMNode["🧠 LLM Node\nLangGraph\n──────────────────────\nОтправляет AgentState в LLM\nПолучает: tool_call или текст\nMistral → fallback Qwen. Retry 2x"]
 
-        Component(context_builder, "Context Builder",
-            "Python",
-            "Собирает AgentState: system prompt с tool definitions + агрегаты трат + история; контролирует token budget")
+        ToolNode["🔧 Tool Node\nLangGraph ToolNode\n──────────────────────\nИсполняет tool_call от LLM\nДобавляет ToolMessage в стейт\nВозвращает управление LLM"]
 
-        Component(llm_node, "LLM Node",
-            "LangGraph / httpx async",
-            "Отправляет весь AgentState в LLM. LLM отвечает: tool_call(name, args) или финальный текст. Mistral API → fallback Qwen3.5-9B. Retry 2x")
+        StateMgr["💾 State Manager\nPython\n──────────────────────\nЧитает/пишет сессию\nРазрешает конфликты лимитов\nPending confirmations"]
 
-        Component(tool_node, "Tool Node",
-            "LangGraph ToolNode",
-            "Исполняет tool_call от LLM. Результат добавляется в AgentState как ToolMessage и управление возвращается LLM")
+        RespBuilder["✉️ Response Builder\nJinja2 + markdown\n──────────────────────\nФорматирует текст для Telegram\nДобавляет inline-кнопки"]
+    end
 
-        Component(state_manager, "State Manager",
-            "Python",
-            "Читает/пишет сессию; разрешает конфликты лимитов; управляет pending confirmations")
-
-        Component(response_builder, "Response Builder",
-            "Jinja2 + markdown",
-            "Форматирует финальный текст LLM для Telegram; добавляет inline-кнопки если нужно")
-    }
-
-    Rel(bot, pre_guard, "user_message + file")
-    Rel(pre_guard, context_builder, "очищенное сообщение")
-    Rel(context_builder, llm_node, "AgentState (messages[])")
-    Rel(llm_node, local_llm, "fallback inference (если Mistral недоступен)")
-    Rel(llm_node, tool_node, "tool_call: name + args")
-    Rel(tool_node, state_manager, "read/write session")
-    Rel(state_manager, session_store, "persist JSON")
-    Rel(tool_node, llm_node, "ToolMessage с результатом (цикл)")
-    Rel(llm_node, response_builder, "финальный текст (нет tool_call)")
-    Rel(response_builder, bot, "formatted response")
-    Rel(llm_node, observability, "latency, tokens, tool_calls")
+    Bot -->|"user_message + file"| Guard
+    Guard -->|"очищенное сообщение"| CtxBuilder
+    CtxBuilder -->|"AgentState messages"| LLMNode
+    LLMNode -->|"основной inference"| MistralAPI
+    LLMNode -->|"fallback inference"| LocalLLM
+    LLMNode -->|"tool_call"| ToolNode
+    ToolNode -->|"read/write"| StateMgr
+    StateMgr -->|"persist"| Storage
+    ToolNode -->|"ToolMessage цикл"| LLMNode
+    LLMNode -->|"финальный текст"| RespBuilder
+    RespBuilder -->|"formatted response"| Bot
+    LLMNode -->|"latency, tokens, tool_calls"| Obs
 ```
 
 ## Граф состояний LangGraph (ReAct)
@@ -67,20 +54,20 @@ START
 ║                              ║
 ║  [llm_node]                  ║
 ║     │                        ║
-║     ├── tool_call? ──→ [tool_node] ──→ добавить ToolMessage
-║     │                    │                      │
-║     │        ошибка инструмента?                │
-║     │          ↓ да                             │
-║     │      добавить error ToolMessage           │
-║     │                                           │
-║     └──────────────────────────────────────────┘
-║     │                        ↑ цикл
-║     └── финальный текст? ──→ выход из цикла
-║                              ║
-║  Stop conditions:            ║
-║  • нет tool_call в ответе    ║
-║  • достигнут max_steps (10)  ║
-║  • Mistral + Qwen оба упали  ║
+║     ├── tool_call → [tool_node] → добавить ToolMessage
+║     │                               │
+║     │        ошибка инструмента?    │
+║     │          ↓ да                 │
+║     │      добавить error msg       │
+║     │                               │
+║     └───────────────────────────────┘ цикл
+║     │
+║     └── финальный текст → выход
+║
+║  Stop conditions:
+║  • нет tool_call в ответе
+║  • достигнут max_steps (10)
+║  • Mistral + Qwen оба упали
 ╚══════════════════════════════╝
   ↓
 [response_builder]
@@ -92,7 +79,7 @@ END
 
 ## Инструменты, доступные LLM
 
-LLM получает эти tool definitions в system prompt и сам решает что и когда вызвать:
+LLM получает tool definitions в system prompt и сам решает что и когда вызвать:
 
 | Tool | Описание | Когда LLM вызывает |
 |------|----------|-------------------|

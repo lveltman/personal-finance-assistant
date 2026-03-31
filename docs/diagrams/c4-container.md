@@ -3,47 +3,38 @@
 > Уровень: контейнеры внутри PFA — процессы, хранилища, их взаимодействие.
 
 ```mermaid
-C4Container
-    title C4 Container — Personal Finance Assistant
+flowchart TB
+    User(["👤 Пользователь"])
+    TG["📱 Telegram API\n(внешний)"]
+    Mistral["🤖 Mistral API\nосновной LLM\n(внешний)"]
+    PriceAPI["💰 Price API\nopt-in\n(внешний)"]
 
-    Person(user, "Пользователь")
-    System_Ext(telegram, "Telegram API")
-    System_Ext(llm_api, "Mistral API (основной LLM)")
-    System_Ext(price_api, "Price API (opt-in)")
+    subgraph PFA["Personal Finance Assistant"]
+        Bot["🤖 Telegram Bot Service\nPython / aiogram 3.x\n──────────────────\nТочка входа: приём апдейтов,\nроутинг, отправка ответов\n[Stateless]"]
 
-    Container_Boundary(pfa, "Personal Finance Assistant") {
+        Orch["🧠 Agent Orchestrator\nPython / LangGraph\n──────────────────\nReAct-цикл: LLM выбирает\nинструменты, retry/fallback\n[Stateless]"]
 
-        Container(bot, "Telegram Bot Service", "Python / aiogram 3.x",
-            "Точка входа: приём апдейтов от Telegram, роутинг на оркестратор, отправка ответов")
+        LocalLLM["💻 Local LLM Runner\nOllama / Qwen3.5-9B\n──────────────────\nFallback при недоступности\nMistral API\n[Stateless]"]
 
-        Container(orchestrator, "Agent Orchestrator", "Python / LangGraph",
-            "ReAct-цикл: планирование шагов, вызов инструментов, управление контекстом, retry/fallback")
+        Tools["🔧 Tool Layer\nPython async\n──────────────────\nFileParser, Categorizer,\nLimitEngine, PriceComparator,\nRefundChecker, ReportGenerator"]
 
-        Container(local_llm, "Local LLM Runner", "Ollama",
-            "Запуск Qwen3.5-9B локально; REST API на localhost; используется как fallback при недоступности Mistral API")
+        Storage[("🗄️ Session Storage\nJSON files on disk\n──────────────────\nТранзакции, лимиты, история\nКлюч: hashed(telegram_id)\n[Stateful]")]
 
-        Container(tool_layer, "Tool Layer", "Python async",
-            "Изолированные инструменты: FileParser, Categorizer, LimitEngine, PriceComparator, RefundChecker, ReportGenerator")
+        Obs["📊 Observability\nPrometheus + Grafana\n+ structlog\n──────────────────\nМетрики, логи, алерты\n[Stateful]"]
+    end
 
-        Container(session_store, "Session Storage", "JSON files on disk",
-            "Состояние пользователя: транзакции, лимиты, история. Ключ — hashed(telegram_id)")
-
-        Container(observability, "Observability", "Prometheus + Grafana + structlog",
-            "Метрики latency/errors, структурированные логи, дашборды и алерты")
-    }
-
-    Rel(user, telegram, "Telegram messages / files")
-    Rel(telegram, bot, "Webhook POST / Long-polling")
-    Rel(bot, orchestrator, "Parsed message + user context")
-    Rel(orchestrator, tool_layer, "Tool calls")
-    Rel(orchestrator, llm_api, "LLM inference — основной (HTTPS)")
-    Rel(orchestrator, local_llm, "LLM inference — fallback при ошибке Mistral")
-    Rel(tool_layer, price_api, "Price lookup — opt-in (HTTPS)")
-    Rel(tool_layer, session_store, "Read / Write session")
-    Rel(orchestrator, session_store, "Load / Save context")
-    Rel(bot, telegram, "Send responses / inline buttons")
-    Rel(bot, observability, "Logs + metrics")
-    Rel(orchestrator, observability, "Logs + LLM traces")
+    User -->|"сообщения / файлы"| TG
+    TG -->|"Webhook / Long-polling"| Bot
+    Bot -->|"parsed message + context"| Orch
+    Orch -->|"LLM inference — основной"| Mistral
+    Orch -->|"LLM inference — fallback"| LocalLLM
+    Orch -->|"tool calls"| Tools
+    Tools -->|"Price lookup opt-in"| PriceAPI
+    Tools -->|"Read / Write session"| Storage
+    Orch -->|"Load / Save context"| Storage
+    Bot -->|"ответы + inline buttons"| TG
+    Bot -->|"logs + metrics"| Obs
+    Orch -->|"logs + LLM traces"| Obs
 ```
 
 ## Ключевые свойства контейнеров
