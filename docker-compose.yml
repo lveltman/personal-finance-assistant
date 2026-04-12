@@ -1,0 +1,32 @@
+version: "3.9"
+
+services:
+  bot:
+    build: .
+    env_file: .env
+    volumes:
+      - sessions_data:/app/data/sessions
+    restart: unless-stopped
+    networks:
+      - pfa_net
+
+  # Ollama — локальный LLM (раскомментировать если Qwen3.5-9B вместо OpenAI fallback)
+  # Требует: после docker compose up выполнить:
+  #   docker exec pfa-ollama-1 ollama pull qwen3.5:9b
+  #
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   ports:
+  #     - "11434:11434"
+  #   restart: unless-stopped
+  #   networks:
+  #     - pfa_net
+
+volumes:
+  sessions_data:
+  # ollama_data:  # раскомментировать вместе с сервисом ollama
+
+networks:
+  pfa_net:

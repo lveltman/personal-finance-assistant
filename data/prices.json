@@ -1,0 +1,31 @@
+{
+  "Кофе": [
+    {"name": "Nescafe Gold 95г", "price": 380, "unit": "уп.", "savings_pct": 35, "where": "Лента / Пятёрочка"},
+    {"name": "Jardin Americano 250г", "price": 290, "unit": "уп.", "savings_pct": 25, "where": "Магнит"},
+    {"name": "MacCoffee 3-в-1 х20", "price": 180, "unit": "уп.", "savings_pct": 55, "where": "Любой супермаркет"}
+  ],
+  "Фастфуд": [
+    {"name": "Готовые блюда (Лента)", "price": 150, "unit": "шт.", "savings_pct": 45, "where": "Лента"},
+    {"name": "Заморозка (пельмени, котлеты)", "price": 200, "unit": "уп.", "savings_pct": 40, "where": "Пятёрочка"}
+  ],
+  "Рестораны": [
+    {"name": "Бизнес-ланч в кафе", "price": 350, "unit": "шт.", "savings_pct": 30, "where": "Ближайшее кафе"},
+    {"name": "Готовые блюда Вкусвилл", "price": 250, "unit": "шт.", "savings_pct": 40, "where": "Вкусвилл"}
+  ],
+  "Такси": [
+    {"name": "Самокат / велосипед", "price": 50, "unit": "поездка", "savings_pct": 80, "where": "Whoosh / Яндекс"},
+    {"name": "Метро / автобус", "price": 60, "unit": "поездка", "savings_pct": 75, "where": "МосТранспорт"}
+  ],
+  "Подписки": [
+    {"name": "Яндекс Плюс (базовый)", "price": 199, "unit": "мес.", "savings_pct": 40, "where": "ya.ru"},
+    {"name": "VK Музыка", "price": 169, "unit": "мес.", "savings_pct": 50, "where": "vk.com"}
+  ],
+  "Электроника": [
+    {"name": "Аналог на DNS", "price": 0, "unit": "шт.", "savings_pct": 15, "where": "dns-shop.ru"},
+    {"name": "Аналог на Ситилинк", "price": 0, "unit": "шт.", "savings_pct": 10, "where": "citilink.ru"}
+  ],
+  "Одежда": [
+    {"name": "Befree / SELA (аналог)", "price": 0, "unit": "шт.", "savings_pct": 30, "where": "befree.ru"},
+    {"name": "Wildberries распродажа", "price": 0, "unit": "шт.", "savings_pct": 40, "where": "wildberries.ru"}
+  ]
+}

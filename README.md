@@ -1,156 +1,148 @@
-# 💰 Personal Finance Assistant - PFA (PoC)
+# Personal Finance Assistant (PoC)
 
-> AI-агент для анализа расходов, установки лимитов и умных рекомендаций по экономии  
-> **Канал доставки: Telegram Bot** 🤖
-
-## 🔍 Задача, аудитория, боль
-
-**Для кого:** Физические лица, ведущие учёт личных финансов (Excel/CSV/банк-экспорт), желающие:
-- 📊 Автоматически анализировать траты по категориям
-- 🎯 Устанавливать гибкие лимиты: «не более 500₽/неделю на десерты»
-- 💡 Получать персонализированные рекомендации: «Этот товар дешевле в другом магазине»
-
-**Текущая боль:**
-| Проблема | Последствия | Решение PFA |
-|----------|-------------|-------------|
-| Ручной анализ Excel | 30-60 мин/неделю на рутину | ✅ Авто-категоризация + NL-запросы в чате |
-| Импульсивные траты | Лимиты «на словах», нет контроля | ✅ Гибкие лимиты через сообщения |
-| Нет персонализированных советов | Общие рекомендации не работают | ✅ Конкретные действия: Refund / Cheaper Alternative |
+> AI-агент для анализа личных расходов через Telegram Bot
+> LangGraph ReAct · Mistral API → Qwen3.5-9B fallback · aiogram 3.x · Docker Compose
 
 ---
 
-## 🎯 Что делает PoC (демо-версия)
+## Что делает PoC
 
-✅ **Загружает** `.xlsx/.csv` с транзакциями (отправьте файл прямо в чат бота)  
-✅ **Категоризирует** расходы автоматически (ML + rules)  
-✅ **Принимает лимиты на естественном языке**:  
-   > «не хочу тратить >1000₽ на кофе в неделю» → ✅ установлено  
-✅ **Генерирует отчёт** в чате: топ-траты, динамика, нарушения лимитов  
-✅ **Предлагает действия** с inline-кнопками:  
-   - 🔁 `Refund`: «Верните покупку X — подходит под политику возврата»  
-   - 💰 `Cheaper`: «Товар Y дешевле на 15% в магазине Z» [Сравнить]  
-✅ **Поддерживает команды**: `/start`, `/help`, `/limits`, `/report`, `/settings`, `/delete`
+- 📁 Загружает `.xlsx`/`.csv` с транзакциями
+- 🏷️ Категоризирует расходы (keyword rules → LLM fallback)
+- ⚙️ Принимает лимиты на естественном языке: «500₽ в неделю на кофе»
+- 📊 Показывает отчёты, топ-траты, нарушения лимитов
+- 💡 Ищет дешевле, проверяет возможность возврата
+- 🛡️ Маскирует PII до передачи в LLM
 
 ---
 
-## 🚫 Что НЕ делает PoC (out-of-scope)
+## Быстрый запуск
 
-❌ Интеграция с банками в реальном времени (только файловый импорт)  
-❌ Мульти-пользовательские сценарии и шеринг данных  
-❌ Прогнозирование доходов / инвестиционные рекомендации  
-❌ Мобильное приложение (всё через Telegram Bot)  
-❌ Обучение модели на пользовательских данных (stateless обработка)  
-❌ Голосовые сообщения как ввод (только текст и файлы)
+### Шаг 1 — Предварительные требования
 
----
+- Docker + Docker Compose
+- Telegram Bot Token — получить через [@BotFather](https://t.me/BotFather)
+- Mistral API Key — зарегистрироваться на [console.mistral.ai](https://console.mistral.ai) (есть бесплатный тариф)
+- OpenAI API Key — для fallback на GPT-4o-mini при недоступности Mistral
 
-## 🚀 Быстрый старт
+### Шаг 2 — Настроить `.env`
 
-### 1. Получить токен Telegram Bot
-1. Откройте [@BotFather](https://t.me/BotFather) в Telegram
-2. Отправьте `/newbot`, следуйте инструкциям
-3. Сохраните полученный токен: `123456789:AAH...xyz`
-
-### 2. Настроить окружение
 ```bash
-# Клонировать репозиторий
-git clone https://github.com/yourname/personal-finance-assistant
-cd personal-finance-assistant
-
-# Создать .env файл
 cp .env.example .env
-# Отредактировать .env:
-#   TELEGRAM_BOT_TOKEN=123456789:AAH...xyz
-#   LLM_MODEL=""
-#   LOG_LEVEL=INFO
 ```
 
-### 3. Запустить через Docker
+Открыть `.env` и заполнить:
+
+```
+TELEGRAM_BOT_TOKEN=123456789:AAH...xyz
+MISTRAL_API_KEY=your_mistral_key
+SESSION_SALT=any-random-secret-string
+```
+
+### Шаг 3 — Запустить
+
 ```bash
-docker-compose up --build
+docker compose up --build -d
 ```
 
-### 4. Начать использовать
-1. Откройте вашего бота в Telegram
-2. Нажмите `/start` или отправьте «Привет»
-3. Отправьте файл `.xlsx` / `.csv` с выпиской
-4. Задайте вопрос: «Покажи, где я перетратил в этом месяце»
+Бот запустится. Можно писать ему в Telegram.
 
-📱 **Готово!** Бот ответит с анализом и рекомендациями.
+### Шаг 4 — Fallback на GPT-4o-mini
 
----
+При таймауте или ошибке Mistral бот автоматически переключается на OpenAI GPT-4o-mini (если `OPENAI_API_KEY` задан в `.env`).
 
-## 💬 Команды бота
+### Просмотр логов
 
-| Команда | Описание | Пример |
-|---------|----------|--------|
-| `/start` | Начало работы, инструкция | — |
-| `/help` | Список команд и подсказки | — |
-| `/analyze` | Запустить анализ последнего файла | `/analyze` |
-| `/limits` | Показать текущие лимиты | `/limits` → «Кофе: 300₽/неделю ⚠️» |
-| `/report` | Сгенерировать отчёт за период | `/report March` → [PDF] |
-| `/settings` | Настройки: API, уведомления, приватность | Inline-меню |
-| `/delete` | Удалить все данные пользователя | `/delete` → подтверждение |
-
----
-
-## 🏗️ Архитектура (кратко)
-
-```
-Telegram User → Bot Server (aiogram) → Agent Orchestrator
-                                      ├── Categorizer (rules + ML)
-                                      ├── Limit Engine (NL parsing)
-                                      ├── Recommendation Engine
-                                      └── Report Generator
-                                      ↓
-                              SON files (sessions) + in-memory cache (PoC)
+```bash
+docker compose logs -f bot
 ```
 
-🔧 **Технологии:** Python 3.10+, aiogram, LangChain, pandas, Qwen2.5/Llama-3 (local), Docker
+### Остановить
 
-🔒 **Privacy:** Все данные обрабатываются на сервере; Telegram ID хэшируется; файлы удаляются через 7 дней
-
----
-
-## 📊 Метрики PoC
-
-| Метрика | Цель |
-|---------|------|
-| Time-to-first-insight | < 90 сек |
-| Limit Parsing Accuracy | ≥ 90% F1 |
-| Categorization F1-score | ≥ 0.92 |
-| Bot Response Time (p95) | < 5 сек |
-| Hallucination Rate | < 5% |
-
----
-
-## 📚 Документация
-
-- 📋 [Product Proposal](docs/product-proposal.md) — цели, метрики, сценарии
-- 🛡️ [Governance](docs/governance.md) — риски, безопасность, PII-политика
-
----
-
-## 🤝 Contributing
-
-1. Fork репозиторий
-2. Создайте feature-ветку (`git checkout -b feature/amazing-feature`)
-3. Закоммитьте изменения (`git commit -m 'Add amazing feature'`)
-4. Запушьте (`git push origin feature/amazing-feature`)
-5. Откройте Pull Request
-
----
-
-## 📄 License
-
-License — см. [LICENSE](LICENSE)
-
----
-
-> 💡 **Совет**: Для локальной разработки без Docker:
-> ```bash
-> python -m venv venv && source venv/bin/activate
-> pip install -r requirements.txt
-> python src/bot/main.py
-> ```
+```bash
+docker compose down
 ```
+
+---
+
+## Команды бота
+
+| Команда | Описание |
+|---------|----------|
+| `/start` | Приветствие и инструкция |
+| `/help` | Список возможностей |
+| `/reset` | Удалить все данные сессии |
+
+**Примеры запросов:**
+- «Покажи расходы за месяц»
+- «Установи лимит 1000₽ в месяц на рестораны»
+- «Где я превышаю лимиты?»
+- «Найди дешевле в категории кофе»
+- «Можно вернуть покупку в Ozon?»
+
+---
+
+## Формат файла с транзакциями
+
+Файл `.xlsx` или `.csv` с колонками (названия колонок гибкие):
+
+| date / дата | amount / сумма | merchant / описание | category (опц.) |
+|---|---|---|---|
+| 2026-03-01 | 450 | Starbucks | |
+| 2026-03-02 | 1200 | Лента | |
+
+---
+
+## Локальная разработка (без Docker)
+
+```bash
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+
+# Создать .env с токенами
+cp .env.example .env
+
+# Поправить SESSION_DIR и DATA_DIR для локального пути
+export SESSION_DIR=./data/sessions
+export DATA_DIR=./data
+
+python -m src.bot.main
+```
+
+---
+
+## Структура проекта
+
+```
+src/
+├── config.py               # Конфигурация из env
+├── core/
+│   ├── session.py          # Хранение сессий (JSON)
+│   ├── file_parser.py      # Парсинг xlsx/csv
+│   ├── categorizer.py      # Категоризация транзакций
+│   └── limit_engine.py     # Проверка лимитов
+├── agent/
+│   ├── guard.py            # Pre-flight guard (rate limit, PII)
+│   ├── prompts.py          # Системный промпт
+│   ├── tools.py            # LangGraph @tool definitions
+│   └── orchestrator.py     # ReAct агент (Mistral → Qwen fallback)
+└── bot/
+    ├── handlers.py         # aiogram handlers
+    └── main.py             # Точка входа
+data/
+├── merchant_rules.json     # Keyword rules для категоризации
+└── prices.json             # Офлайн-база цен
+docs/                       # Системный дизайн и диаграммы
+```
+
+---
+
+## Документация
+
+- [System Design](docs/system-design.md)
+- [C4 Context](docs/diagrams/c4-context.md)
+- [C4 Container](docs/diagrams/c4-container.md)
+- [C4 Component](docs/diagrams/c4-component.md)
+- [Data Flow](docs/diagrams/data-flow.md)
+- [Agent / Orchestrator spec](docs/specs/agent-orchestrator.md)
