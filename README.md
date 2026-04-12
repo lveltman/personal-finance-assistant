@@ -1,7 +1,7 @@
 # Personal Finance Assistant (PoC)
 
 > AI-агент для анализа личных расходов через Telegram Bot
-> LangGraph ReAct · Mistral API → Qwen3.5-9B fallback · aiogram 3.x · Docker Compose
+> LangGraph ReAct · Mistral API → OpenAI API (Ollama - Qwen3.5-9B) fallback · aiogram 3.x · Docker Compose
 
 ---
 
