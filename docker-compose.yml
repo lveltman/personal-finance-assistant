@@ -6,14 +6,72 @@ services:
     env_file: .env
     volumes:
       - ./data/sessions:/app/data/sessions
+    ports:
+      - "9091:9090"  # bot metrics endpoint (Prometheus scrapes внутри сети, 9091 для ручной проверки)
     restart: unless-stopped
     networks:
       - pfa_net
 
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=15d"
+    ports:
+      - "9090:9090"  # Prometheus UI: http://localhost:9090
+    restart: unless-stopped
+    networks:
+      - pfa_net
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - pfa_net
+
+  # Langfuse — self-hosted LLM трейсинг (раскомментировать для локального трейсинга)
+  # После запуска: http://localhost:3001 → создай аккаунт → Settings → API Keys
+  # langfuse-db:
+  #   image: postgres:15
+  #   environment:
+  #     POSTGRES_USER: langfuse
+  #     POSTGRES_PASSWORD: langfuse
+  #     POSTGRES_DB: langfuse
+  #   volumes:
+  #     - langfuse_db:/var/lib/postgresql/data
+  #   restart: unless-stopped
+  #   networks:
+  #     - pfa_net
+
+  # langfuse:
+  #   image: langfuse/langfuse:latest
+  #   environment:
+  #     - DATABASE_URL=postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
+  #     - NEXTAUTH_SECRET=change-this-secret
+  #     - NEXTAUTH_URL=http://localhost:3001
+  #     - SALT=change-this-salt
+  #   ports:
+  #     - "3001:3000"
+  #   depends_on:
+  #     - langfuse-db
+  #   restart: unless-stopped
+  #   networks:
+  #     - pfa_net
+
   # Ollama — локальный LLM (раскомментировать если Qwen3.5-9B вместо OpenAI fallback)
-  # Требует: после docker compose up выполнить:
-  #   docker exec pfa-ollama-1 ollama pull qwen3.5:9b
-  #
   # ollama:
   #   image: ollama/ollama:latest
   #   volumes:
@@ -23,6 +81,11 @@ services:
   #   restart: unless-stopped
   #   networks:
   #     - pfa_net
+
+volumes:
+  prometheus_data:
+  grafana_data:
+  # langfuse_db:  # раскомментировать вместе с langfuse сервисами
 
 networks:
   pfa_net:

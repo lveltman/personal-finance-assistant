@@ -14,7 +14,7 @@ flowchart TB
 
         Orch["🧠 Agent Orchestrator\nPython / LangGraph\n──────────────────\nReAct-цикл: LLM выбирает\nинструменты, retry/fallback\n[Stateless]"]
 
-        LocalLLM["💻 Local LLM Runner\nOllama / Qwen3.5-9B\n──────────────────\nFallback при недоступности\nMistral API\n[Stateless]"]
+        FallbackLLM["☁️ OpenAI GPT-4o-mini\n(внешний API)\n──────────────────\nFallback при недоступности\nMistral API\n[Stateless]"]
 
         Tools["🔧 Tool Layer\nPython async\n──────────────────\nFileParser, Categorizer,\nLimitEngine, PriceComparator,\nRefundChecker, ReportGenerator"]
 
@@ -27,7 +27,7 @@ flowchart TB
     TG -->|"Webhook / Long-polling"| Bot
     Bot -->|"parsed message + context"| Orch
     Orch -->|"LLM inference — основной"| Mistral
-    Orch -->|"LLM inference — fallback"| LocalLLM
+    Orch -->|"LLM inference — fallback"| FallbackLLM
     Orch -->|"tool calls"| Tools
     Tools -->|"Price lookup opt-in"| PriceAPI
     Tools -->|"Read / Write session"| Storage
@@ -43,7 +43,7 @@ flowchart TB
 |-----------|----------------|-----------|
 | Telegram Bot Service | Горизонтально (несколько инстансов) | Stateless |
 | Agent Orchestrator | Горизонтально | Stateless (состояние в Session Storage) |
-| Local LLM Runner | Вертикально (GPU/CPU) | Stateless |
+| OpenAI GPT-4o-mini (fallback) | Внешний API | Stateless |
 | Tool Layer | Часть Orchestrator процесса | Stateless |
 | Session Storage | Вертикально (PoC: JSON; prod: Redis/SQLite) | Stateful |
 | Observability | Отдельный Docker Compose stack | Stateful |

@@ -7,7 +7,7 @@ from enum import Enum
 import structlog
 from pydantic import BaseModel
 
-from src import config
+from src import config, metrics
 
 log = structlog.get_logger()
 
@@ -58,6 +58,7 @@ def check_rate_limit(user_hash: str) -> None:
     window = 60.0
     _rate_store[user_hash] = [t for t in _rate_store[user_hash] if now - t < window]
     if len(_rate_store[user_hash]) >= config.RATE_LIMIT_RPM:
+        metrics.guardrail_blocked_total.labels(reason="rate_limit").inc()
         raise GuardRefusal(
             reason=RefusalReason.RATE_LIMIT,
             message=f"⏱ Слишком много запросов. Подожди немного — разрешено {config.RATE_LIMIT_RPM} запросов в минуту.",
@@ -76,6 +77,7 @@ def check_domain(text: str, user_hash: str = "") -> None:
     if len(text.strip().split()) <= 5:
         return
     if len(text.strip().split()) > 15:
+        metrics.guardrail_blocked_total.labels(reason="out_of_domain").inc()
         raise GuardRefusal(
             reason=RefusalReason.OUT_OF_DOMAIN,
             message=(

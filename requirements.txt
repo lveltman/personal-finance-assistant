@@ -13,3 +13,5 @@ aiofiles>=23.0.0
 chardet>=5.0.0
 dateparser>=1.2.0
 prometheus-client>=0.20.0
+sentence-transformers>=3.0.0
+langfuse>=2.0.0

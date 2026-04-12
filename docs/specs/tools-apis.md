@@ -116,7 +116,44 @@ class RefundResult:
 
 ---
 
-### 5. ReportGenerator (Tool)
+### 5. TextTransactionParser (Tool: `parse_transactions_from_text`)
+
+**Назначение:** Извлечь транзакции из свободного текста пользователя без файла.
+
+**Контракт:**
+```python
+@tool
+def parse_transactions_from_text(text: str) -> str:
+    ...
+```
+
+**Поведение:**
+- LLM с `with_structured_output(ExtractedTransactions)` извлекает: date, amount, merchant
+- Даты: вычисляются относительно сегодня («вчера», «три дня назад», «2026 03 05»)
+- После извлечения: dateparser нормализует дату, `batch_categorize` расставляет категории
+- Транзакции **добавляются** к существующим в сессии (мерж, не замена)
+- Возвращает список добавленных транзакций + сводку расходов за месяц
+
+**Пример вызова:**
+```
+User: "вчера суши 1200₽ и цветы 600₽"
+→ LLM: tool_call parse_transactions_from_text("вчера суши 1200₽ и цветы 600₽")
+→ Result: "✅ Добавлено 2 транзакций: ...\n📊 Расходы за месяц: 1800₽"
+```
+
+---
+
+### 6. RecategorizationTool (Tool: `recategorize_all_transactions`)
+
+**Назначение:** Пересчитать категории для всех транзакций в сессии.
+
+**Когда использовать:** Категории пустые, показывают "Прочее" или "nan" после загрузки файла.
+
+**Поведение:** Пробегает все транзакции, применяет keyword-rules → LLM fallback, сохраняет результат обратно в сессию.
+
+---
+
+### 7. ReportGenerator (Tool)
 
 **Назначение:** Форматирование итогового ответа для Telegram.
 
@@ -158,16 +195,16 @@ class TelegramResponse:
 | Auth | `MISTRAL_API_KEY` env (секрет) |
 | Timeout | 30s |
 | Retry | 2 раза с backoff 1s, 2s |
-| Fallback при провале | Локальный Qwen3.5-9B |
+| Fallback при провале | OpenAI GPT-4o-mini (автоматически через `with_fallbacks`) |
 | Max cost per request | ~$0.005 (3500 токенов mistral-medium) |
 
-### Local LLM — Qwen3.5-9B (fallback)
+### OpenAI GPT-4o-mini (fallback LLM)
 
 | Параметр | Значение |
 |----------|----------|
-| URL | `http://localhost:11434/api/generate` (Ollama) |
-| Timeout | 15s (read); 5s (connect) |
+| Auth | `OPENAI_API_KEY` env (опционально) |
+| Timeout | 30s |
 | Retry | 1 раз |
-| Fallback при провале | Rule-based + уведомление "⚠️ AI временно недоступен" |
-| Auth | Нет (localhost) |
+| Fallback при провале | Rule-based ответ + "⚠️ AI временно недоступен" |
 | Когда используется | Mistral API недоступен / таймаут / HTTP 5xx |
+| Механизм | LangChain `ChatMistralAI.with_fallbacks([ChatOpenAI])` |

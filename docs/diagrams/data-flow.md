@@ -31,8 +31,8 @@ flowchart TD
         MET[("Metrics\nPrometheus TSDB\nTTL: 15 дней")]
     end
 
-    subgraph LLM_BOX["LLM (Mistral API → Qwen3.5-9B fallback)"]
-        LLM["Mistral API (основной)\nили Qwen3.5-9B локально\nвход: ≤3500 токенов\nвыход: ≤500 токенов"]
+    subgraph LLM_BOX["LLM (Mistral API → GPT-4o-mini fallback)"]
+        LLM["Mistral API (основной)\nили OpenAI GPT-4o-mini (fallback)\nвход: ≤3500 токенов\nвыход: ≤500 токенов"]
     end
 
     F --> FS --> FP --> CAT

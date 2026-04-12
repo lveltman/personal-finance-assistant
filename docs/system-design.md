@@ -11,7 +11,7 @@
 |---------|-------|-------------|
 | **Канал доставки** | Telegram Bot (aiogram 3.x) | Zero-install, знакомый UX, поддержка файлов и inline-кнопок |
 | **Оркестрация агента** | LangGraph (ReAct Tool Calling) | LLM сам выбирает инструменты; явный граф ограничивает max_steps и stop conditions |
-| **LLM** | Mistral API (по умолчанию) → Qwen3.5-9B локально (fallback) | Mistral бесплатно для MVP — резерв при таймауте/ошибке API |
+| **LLM** | Mistral API (по умолчанию) → OpenAI GPT-4o-mini (fallback) | Mistral бесплатно для MVP — резерв при таймауте/ошибке API |
 | **Категоризация** | Hybrid: keyword-rules → embedding-similarity → LLM fallback | Детерминированный путь для известных merchant'ов, LLM только для edge-case |
 | **Хранение сессий** | JSON-файлы на диске (PoC) | Без внешних зависимостей; миграция на Redis/SQLite — фаза 2 |
 | **Арифметика** | Детерминированный Python (pandas) | LLM никогда не считает числа — только генерирует текст |
@@ -58,7 +58,7 @@
 | **Limit Engine** | Детерминированный Python | Сравнение трат с лимитами, выявление нарушений |
 | **Price Comparator** | HTTP tool + offline DB | Поиск дешевле на рынке |
 | **Refund Checker** | Rules engine | Проверка применимости политик возврата |
-| **Report Generator** | Jinja2, markdown | Форматирование ответов, inline-кнопки |
+| **Report Generator** | markdown + md_to_html() | Форматирование ответов для Telegram HTML |
 | **Session Storage** | JSON + in-memory cache | Хранение состояния и истории |
 | **Observability** | structlog + Prometheus + Grafana | Метрики, логи, алерты |
 | **Guardrails** | Input sanitizer, prompt validator | Защита от инъекций, out-of-scope запросов |
@@ -151,7 +151,7 @@ PoC использует **lightweight retrieval** без полноценног
      ↓ нет
 2. Embedding similarity (sentence-transformers/paraphrase-multilingual-MiniLM):
    embed("starbucks coffee") vs embed(known_categories)
-   cosine ≥ 0.75 → category="Кофе"             [ML]
+   cosine ≥ 0.40 → category="Кофе"             [ML]
      ↓ нет
 3. LLM call: "Какая категория у транзакции X?"
    [одиночный вызов, температура=0]              [LLM]
@@ -170,8 +170,8 @@ PoC использует **lightweight retrieval** без полноценног
 | Tool | Протокол | Timeout | Fallback |
 |------|----------|---------|----------|
 | **Telegram Bot API** | HTTPS webhook/polling | 60s (Telegram ограничение) | Long-polling при недоступности webhook |
-| **Mistral API** (основной LLM) | HTTPS REST (OpenAI-compatible) | 30s | Qwen3.5-9B локально |
-| **Local LLM** (Qwen3.5-9B, Ollama) | localhost REST | 15s | Детерминированный fallback + уведомление пользователю |
+| **Mistral API** (основной LLM) | HTTPS REST (OpenAI-compatible) | 30s | OpenAI GPT-4o-mini |
+| **OpenAI API** (GPT-4o-mini, fallback) | HTTPS REST (OpenAI-compatible) | 30s | Rule-based ответ + уведомление пользователю |
 | **Price Comparison API** | HTTPS REST | 5s | Оффлайн JSON-база |
 
 Все tool-вызовы — через изолированные async-функции с валидацией ответа (Pydantic).
@@ -183,8 +183,8 @@ PoC использует **lightweight retrieval** без полноценног
 ### Failure Modes
 | Сценарий | Вероятность | Обработка |
 |----------|-------------|-----------|
-| Mistral API таймаут / ошибка | Средняя | Fallback на локальный Qwen3.5-9B; прозрачно для пользователя |
-| Локальный Qwen недоступен (если Mistral уже упал) | Низкая | Fallback на rule-based + уведомление пользователя |
+| Mistral API таймаут / ошибка | Средняя | Fallback на OpenAI GPT-4o-mini; прозрачно для пользователя |
+| GPT-4o-mini недоступен (если Mistral уже упал) | Низкая | Rule-based ответ + уведомление «⚠️ AI временно недоступен» |
 | Некорректный формат файла | Высокая | Валидация в FileParser; понятное сообщение об ошибке |
 | NL-парсинг с низкой уверенностью | Средняя | Запрос подтверждения через inline-кнопки |
 | Price API недоступен | Средняя | Оффлайн-база с меткой «⚠️ Данные могут быть устаревшими» |
@@ -226,9 +226,9 @@ PoC использует **lightweight retrieval** без полноценног
 |-----|-----------|-------|
 | Структурированные логи | structlog + JSON | Дебаггинг, аудит |
 | Метрики latency/errors | Prometheus + Grafana | SLO мониторинг |
-| LLM call трейсинг | LangSmith / MLflow | Качество промптов, стоимость |
+| LLM call трейсинг | Langfuse (опционально, self-hosted) | Качество промптов, стоимость — включается через `LANGFUSE_ENABLED=true` |
 | Алерты | Grafana Alerting | p95 > 10s, error rate > 5% |
-| Eval pipeline | pytest + golden set | Регрессионное тестирование качества |
+| Eval pipeline | pytest + golden set | Регрессионное тестирование качества *(не реализовано в PoC)* |
 
 ---
 

@@ -5,7 +5,7 @@ from langchain_mistralai import ChatMistralAI
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 
-from src import config
+from src import config, metrics
 from src.agent import prompts
 from src.agent.callbacks import ToolLoggingCallback
 from src.agent.guard import GuardRefusal, run_preflight
@@ -36,8 +36,28 @@ _llm = None
 _agent = None
 
 
+def _build_langfuse_handler():
+    """Return Langfuse callback handler if enabled, else None."""
+    if not config.LANGFUSE_ENABLED:
+        return None
+    try:
+        from langfuse.callback import CallbackHandler
+        return CallbackHandler(
+            public_key=config.LANGFUSE_PUBLIC_KEY,
+            secret_key=config.LANGFUSE_SECRET_KEY,
+            host=config.LANGFUSE_HOST,
+        )
+    except Exception as e:
+        log.warning("langfuse_init_failed", error=str(e))
+        return None
+
+
+_langfuse_handler = None
+_langfuse_initialized = False
+
+
 def _get_agent():
-    global _llm, _agent
+    global _llm, _agent, _langfuse_handler, _langfuse_initialized
     if _agent is None:
         _llm = _build_llm()
         _agent = create_react_agent(
@@ -45,6 +65,11 @@ def _get_agent():
             tools=ALL_TOOLS,
         )
         log.info("agent_created", model=config.LLM_MODEL, fallback=config.LLM_FALLBACK_MODEL)
+    if not _langfuse_initialized:
+        _langfuse_handler = _build_langfuse_handler()
+        _langfuse_initialized = True
+        if _langfuse_handler:
+            log.info("langfuse_tracing_enabled", host=config.LANGFUSE_HOST)
     return _agent
 
 
@@ -52,12 +77,17 @@ async def process_message(telegram_id: int, user_text: str) -> str:
     """
     Main entry point. Runs pre-flight → ReAct agent → returns response text.
     """
+    import time as _time
+    _t0 = _time.time()
     user_hash = session_store.get_user_hash(telegram_id)
+    metrics.active_requests.inc()
 
     # Pre-flight guard (deterministic, no LLM)
     try:
         clean_text = run_preflight(user_hash, user_text)
     except GuardRefusal as e:
+        metrics.active_requests.dec()
+        metrics.requests_total.labels(status="blocked").inc()
         return str(e)
 
     # Load session
@@ -83,11 +113,14 @@ async def process_message(telegram_id: int, user_text: str) -> str:
 
     messages.append(HumanMessage(content=clean_text))
     try:
+        callbacks = [ToolLoggingCallback(user_hash=user_hash)]
+        if _langfuse_handler:
+            callbacks.append(_langfuse_handler)
         result = await agent.ainvoke(
             {"messages": messages},
             config={
                 "recursion_limit": config.LLM_MAX_STEPS * 2,
-                "callbacks": [ToolLoggingCallback(user_hash=user_hash)],
+                "callbacks": callbacks,
             },
         )
         # Extract final AI response
@@ -95,10 +128,17 @@ async def process_message(telegram_id: int, user_text: str) -> str:
         response_text = final_message.content
     except Exception as e:
         log.error("agent_error", error=str(e), user_hash=user_hash)
+        metrics.errors_total.labels(component="orchestrator").inc()
+        metrics.requests_total.labels(status="error").inc()
         response_text = (
             "⚠️ Произошла ошибка при обработке запроса. "
             "Попробуй ещё раз или пришли данные заново."
         )
+    else:
+        metrics.requests_total.labels(status="success").inc()
+    finally:
+        metrics.active_requests.dec()
+        metrics.request_duration.labels(status="success").observe(_time.time() - _t0)
 
     # Save conversation history
     session_store.append_conversation(sess, "user", user_text)

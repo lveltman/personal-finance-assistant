@@ -120,58 +120,115 @@ sum(increase(pfa_llm_cost_usd_total[1h])) by (model)
 
 ---
 
-## LLM Трейсинг (LangSmith / MLflow)
+## Запуск Observability Stack
 
-Каждый LLM-вызов трейсится:
-- Input prompt (без PII)
-- Output
-- Latency, tokens, cost
-- Validation result
-- Confidence score
+### Старт
 
-Используется для:
-- Анализа качества промптов
-- Выявления регрессий при смене модели
-- Оптимизации token budget
+```bash
+docker-compose up -d
+```
+
+### Grafana
+
+- URL: **http://localhost:3000**
+- Логин: `admin` / пароль из `GRAFANA_ADMIN_PASSWORD` (по умолчанию `admin`)
+- Datasource Prometheus уже настроен автоматически через provisioning
+
+**Полезные запросы для Explore (или создания panels):**
+
+```promql
+# Сколько запросов в минуту
+rate(pfa_requests_total[1m])
+
+# p95 latency
+histogram_quantile(0.95, sum(rate(pfa_request_duration_seconds_bucket[5m])) by (le))
+
+# Error rate
+sum(rate(pfa_errors_total[5m])) by (component)
+
+# Сколько раз срабатывал fallback
+rate(pfa_fallback_total[5m])
+
+# Заблокировано guardrail'ом
+rate(pfa_guardrail_blocked_total[5m]) by (reason)
+
+# Категоризация по методу (rules/embedding/llm/fallback)
+rate(pfa_categorization_total[5m]) by (method)
+```
+
+### Prometheus
+
+Prometheus scrape'ит бота напрямую: `http://bot:9090/metrics`
+
+Посмотреть метрики сырыми:
+
+```bash
+# Через docker exec
+docker-compose exec bot curl -s http://localhost:9090/metrics
+
+# Или напрямую если проброшен порт
+curl http://localhost:9090/metrics
+```
+
+> По умолчанию порт 9090 бота не пробрасывается наружу (только внутри pfa_net). Если нужен доступ снаружи, добавь в docker-compose.yml:
+> ```yaml
+> bot:
+>   ports:
+>     - "9090:9090"
+> ```
+
+---
+
+## LLM Трейсинг (Langfuse)
+
+Langfuse — open-source альтернатива LangSmith. Может работать self-hosted (в том же docker-compose) или через облако [cloud.langfuse.com](https://cloud.langfuse.com).
+
+Интеграция через `langfuse.callback.CallbackHandler` — добавляется как LangGraph callback, не меняет логику агента.
+
+### Вариант 1: Self-hosted (рекомендуется)
+
+Раскомментируй сервисы `langfuse` и `langfuse-db` в `docker-compose.yml`:
+
+```bash
+docker-compose up -d
+```
+
+Langfuse будет доступен на **http://localhost:3001**. При первом входе создай аккаунт, затем перейди в Settings → API Keys и скопируй ключи.
+
+### Вариант 2: Cloud
+
+Зарегистрируйся на [cloud.langfuse.com](https://cloud.langfuse.com) → Settings → API Keys.
+
+### Включение в боте
+
+Добавь в `.env`:
+
+```env
+LANGFUSE_ENABLED=true
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_HOST=http://langfuse:3000   # self-hosted
+# LANGFUSE_HOST=https://cloud.langfuse.com  # cloud
+```
+
+Перезапусти бота — в логах появится `langfuse_tracing_enabled`.
+
+### Что трейсится автоматически
+
+- Каждый LLM-вызов: входной prompt (без PII), выходной текст, latency, токены
+- Каждый tool call: название, аргументы, результат
+- Весь ReAct-цикл как одна сессия (trace)
+
+### Просмотр трейсов
+
+**http://localhost:3001 → Traces**
+
+Каждый запрос — дерево: `trace → llm_call → tool_call → llm_call → ...`
 
 ---
 
 ## Eval Pipeline
 
-### Автоматические тесты
+> ⚠️ **Не реализовано в PoC.** Директория `tests/evals/` и golden sets не созданы.
 
-```bash
-# Запуск всех eval тестов
-pytest tests/evals/ -v
-
-# Тест категоризатора (F1 ≥ 0.92)
-pytest tests/evals/test_categorizer.py
-
-# Тест NL-парсинга лимитов (accuracy ≥ 0.90)
-pytest tests/evals/test_limit_parser.py
-
-# End-to-end smoke тест
-pytest tests/evals/test_e2e.py
-```
-
-### Golden Sets
-
-| Набор | Размер | Метрика | Target |
-|-------|--------|---------|--------|
-| Categorizer | 200 транзакций | F1 | ≥ 0.92 |
-| NL Limit Parser | 100 NL-фраз | Accuracy | ≥ 0.90 |
-| Out-of-domain | 50 примеров | Recall | 100% (все должны быть заблокированы) |
-| Refusal | 30 примеров инъекций | Recall | 100% |
-
-### Регрессионный запуск
-
-При каждом изменении промптов или смене модели:
-1. Запустить `pytest tests/evals/`
-2. Если F1 упал > 2pp → блокировать merge
-3. Результаты логируются в MLflow для сравнения версий
-
-### Human Eval (демо-сессии)
-
-- CSAT опрос через inline-кнопки после каждого анализа: «Насколько полезен ответ? [1-5]»
-- Целевой CSAT: ≥ 4.2 / 5.0
-- Hallucination check: вручную для выборки 20 рекомендаций в неделю
+Eval pipeline (автоматические тесты категоризатора, NL-парсера, out-of-domain) запланирован как следующий шаг после базовой функциональности. На данный момент тестирование проводится вручную через Telegram-интерфейс.

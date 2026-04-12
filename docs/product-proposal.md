@@ -104,13 +104,9 @@ sequenceDiagram
 ### 3.2 Команды бота
 | Команда | Описание | Пример ответа |
 |---------|----------|---------------|
-| `/start` | Начало работы, инструкция | «Привет! Отправь мне файл с выпиской (.xlsx/.csv)» |
-| `/help` | Список доступных команд | «/analyze, /limits, /report, /settings» |
-| `/analyze` | Запуск анализа последнего файла | «Анализирую expenses_march.xlsx...» |
-| `/limits` | Показать текущие лимиты | «Кофе: 300₽/неделю (потрачено 420₽ ⚠️)» |
-| `/report` | Генерация отчёта за период | «Отчёт за март: [файл PDF]» |
-| `/settings` | Настройки (API, уведомления) | Inline-меню с опциями |
-| `/delete` | Удалить все данные | «Все ваши данные удалены ✅» |
+| `/start` | Начало работы, инструкция | «Привет! Отправь мне файл с выпиской (.xlsx/.csv) или напиши расходы текстом» |
+| `/help` | Список возможностей бота | Что умеет ассистент и примеры запросов |
+| `/reset` | Удалить все данные сессии | «🗑 Все данные удалены. Пришли новый файл для начала работы.» |
 
 ### 3.3 Edge-кейсы и обработка ошибок
 | Кейс | Описание | Стратегия обработки |
@@ -145,7 +141,7 @@ sequenceDiagram
 | **Макс. размер файла** | 50 MB | Ограничение Telegram Bot API |
 | **Поддерживаемые форматы** | `.xlsx`, `.csv` (UTF-8) | Наиболее распространённые форматы экспорта из банков |
 | **Языки NL-запросов** | Русский (основной), английский (базовый) | Фокус на RU-рынок; мультиязычность — фаза 2 |
-| **Модель LLM** | Локальная 7B (Qwen2.5 / Llama-3) или API (opt-in) | Баланс качества / стоимости / приватности |
+| **Модель LLM** | Mistral API (основной) → OpenAI GPT-4o-mini (fallback) | Автоматическое переключение при таймауте |
 | **Max concurrent users** | 50 (PoC) | Ограничение ресурсов сервера |
 
 ### 4.2 Ограничения Telegram Bot API
@@ -241,7 +237,7 @@ sequenceDiagram
 | **Telegram Bot** | `aiogram 3.x` / `python-telegram-bot` | Приём сообщений, файлов, отправка ответов | Telegram Bot API |
 | **File Parser** | `pandas`, `openpyxl` | Загрузка и валидация `.xlsx/.csv` из Telegram | — |
 | **Categorizer** | Hybrid: rules + `sentence-transformers` | Присвоение категории транзакции | Опционально: external taxonomy API |
-| **NL Limit Parser** | LLM (Qwen2.5-7B / GPT-4o-mini) + few-shot prompts | Извлечение {category, amount, period} из NL | — |
+| **NL Limit Parser** | LLM (Mistral / GPT-4o-mini fallback) + few-shot prompts | Извлечение {category, amount, period} из NL | — |
 | **Limit Engine** | Deterministic Python | Проверка трат vs лимиты, приоритизация | — |
 | **Price Comparator** | `requests` + caching | Поиск альтернатив по цене | Price API (opt-in), offline DB |
 | **Refund Checker** | Rules-based engine | Проверка политик возврата | — |

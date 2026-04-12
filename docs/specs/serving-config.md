@@ -23,16 +23,16 @@ python src/bot/main.py
 ```yaml
 services:
   bot:           # Telegram Bot + Agent Orchestrator
-  llm-runner:    # Ollama с Qwen3.5-9B
-  prometheus:    # Метрики
-  grafana:       # Дашборды
+  prometheus:    # Метрики (опционально)
+  grafana:       # Дашборды (опционально)
 ```
 
 Volumes:
-- `session_data:/data/sessions` — JSON-файлы сессий
-- `llm_models:/root/.ollama` — скачанные веса LLM
+- `./data/sessions:/app/data/sessions` — JSON-файлы сессий (bind mount)
 - `prometheus_data:/prometheus`
 - `grafana_data:/var/lib/grafana`
+
+> **Примечание:** Локальный LLM (Ollama/Qwen) не используется. Fallback — OpenAI GPT-4o-mini через API.
 
 ---
 
@@ -48,11 +48,10 @@ Volumes:
 
 | Переменная | Default | Описание |
 |-----------|---------|----------|
-| `LLM_PROVIDER` | `api` | `api` (Mistral SDK, по умолчанию) или `local` (Qwen через Ollama) |
-| `MISTRAL_API_KEY` | — | API ключ Mistral — обязателен при `LLM_PROVIDER=api`; URL указывать не нужно (SDK хардкодит его сам) |
-| `LLM_FALLBACK_PROVIDER` | `local` | Провайдер при ошибке основного; `local` или `none` |
-| `LLM_MODEL` | `mistral-medium-latest` | Имя модели (Mistral) или имя модели в Ollama |
-| `LLM_FALLBACK_MODEL` | `qwen3.5-9b` | Модель для fallback (Ollama) |
+| `MISTRAL_API_KEY` | — | API ключ Mistral (основной LLM) |
+| `OPENAI_API_KEY` | — | API ключ OpenAI — для fallback на GPT-4o-mini при недоступности Mistral |
+| `LLM_MODEL` | `mistral-medium-latest` | Модель Mistral |
+| `LLM_FALLBACK_MODEL` | `gpt-4o-mini` | Модель OpenAI для fallback |
 | `LLM_TIMEOUT_S` | `15` | Таймаут LLM-запроса в секундах |
 | `MAX_FILE_SIZE_MB` | `50` | Максимальный размер файла |
 | `SESSION_TTL_DAYS` | `7` | TTL JSON-сессий |
@@ -84,24 +83,16 @@ Volumes:
 
 | Модель | Версия PoC | Параметры | RAM |
 |--------|-----------|-----------|-----|
-| Mistral API | mistral-medium-latest | API (основной, по умолчанию) | — |
-| Qwen3.5 | 9B | 9B (fallback) | ~6 GB |
-| sentence-transformers | paraphrase-multilingual-MiniLM-L12-v2 | 118M | ~450 MB |
+| Mistral API | mistral-medium-latest | API (основной) | — |
+| OpenAI | gpt-4o-mini | API (fallback при недоступности Mistral) | — |
 
-Переключить на локальный режим: `LLM_PROVIDER=local` в `.env`, убедиться что `llm-runner` запущен.
-Отключить fallback на локальную модель: `LLM_FALLBACK_PROVIDER=none` (в этом случае при ошибке API — rule-based ответ).
+Отключить fallback: убрать `OPENAI_API_KEY` из `.env` — при ошибке Mistral вернётся rule-based ответ с предупреждением.
 
 ---
 
 ## Healthcheck
 
 ```bash
-# Bot health
-curl http://localhost:8080/health
-
-# LLM runner
-curl http://localhost:11434/api/tags
-
 # Prometheus
 curl http://localhost:9090/-/healthy
 ```
@@ -112,7 +103,7 @@ curl http://localhost:9090/-/healthy
 
 | Ресурс | Minimum (PoC) | Recommended |
 |--------|--------------|-------------|
-| CPU | 4 vCPU | 8 vCPU |
-| RAM | 8 GB | 16 GB |
-| Disk | 20 GB | 50 GB |
-| GPU | Нет (CPU inference) | 8GB VRAM (значительно быстрее) |
+| CPU | 2 vCPU | 4 vCPU |
+| RAM | 1 GB | 2 GB |
+| Disk | 5 GB | 10 GB |
+| GPU | Не требуется (все LLM — через API) | — |

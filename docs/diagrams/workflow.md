@@ -13,7 +13,7 @@ sequenceDiagram
     participant FP as File Parser
     participant Cat as Categorizer
     participant SS as Session Storage
-    participant LLM as Mistral API / Qwen3.5-9B (fallback)
+    participant LLM as Mistral API / GPT-4o-mini (fallback)
     participant LE as Limit Engine
 
     U->>TG: Отправляет expenses_march.xlsx
@@ -38,7 +38,7 @@ sequenceDiagram
         Cat-->>Orch: [{...category: "Кофе"...}]
     else Нет совпадений → embedding
         Cat->>Cat: cosine_similarity(embed(merchant), embed(categories))
-        alt similarity ≥ 0.75
+        alt similarity ≥ 0.40
             Cat-->>Orch: [{...category: "Кофе", confidence: 0.82...}]
         else LLM fallback
             Cat->>LLM: "Категория для: STARBUCKS #1234?"
@@ -94,8 +94,8 @@ flowchart TD
     E -->|Нет| F[Retry #2 — 2s]
     F --> G{Ответ?}
     G -->|Да| C
-    G -->|Нет| H[Переключиться на Qwen3.5-9B локально]
-    H --> I{Qwen доступен?}
+    G -->|Нет| H[Переключиться на OpenAI GPT-4o-mini]
+    H --> I{GPT-4o-mini доступен?}
     I -->|Да| C
     I -->|Нет| J[Rule-based fallback]
     J --> K[Детерминированный ответ + пометка ⚠️ AI временно недоступен]

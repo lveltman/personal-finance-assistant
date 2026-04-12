@@ -66,6 +66,53 @@ docker compose down
 
 ---
 
+## Для проверяющего
+
+### Запуск
+
+```bash
+cp .env.example .env
+# Заполнить TELEGRAM_BOT_TOKEN, MISTRAL_API_KEY, OPENAI_API_KEY, SESSION_SALT
+
+docker compose up --build -d
+```
+
+### Что проверить и где
+
+| Что | URL / команда | Ожидаемый результат |
+|-----|--------------|---------------------|
+| **Бот работает** | Написать в Telegram | Ответ агента |
+| **Метрики (сырые)** | http://localhost:9091/metrics | Список `pfa_*` метрик |
+| **Grafana дашборд** | http://localhost:3000 → логин `admin`/`admin` → dashboard **PFA Operations** | Графики request rate, latency, errors, categorization |
+| **Prometheus** | http://localhost:9090/targets | Цель `bot:9090` со статусом `UP` |
+| **LLM трейсы (Langfuse)** | https://cloud.langfuse.com → Traces | Дерево каждого запроса: LLM-вызовы + tool calls |
+| **Логи бота** | `docker compose logs -f bot` | JSON-логи (structlog) |
+
+### Сценарии для проверки функциональности
+
+1. **Загрузка файла** — отправить боту `test/fixtures/sample_transactions.xlsx` (или любой `.xlsx` с колонками date/amount/merchant)
+2. **Ввод текстом** — написать «вчера кофе 350₽ и обед в Теремке 480₽»
+3. **Лимит** — «установи лимит 3000₽ в месяц на рестораны»
+4. **Общий лимит** — «хочу тратить не больше 20000₽ в месяц»
+5. **Отчёт** — «покажи где я больше всего трачу»
+6. **Нарушения** — «где я превышаю лимиты?»
+7. **Out-of-domain** — «расскажи про погоду» → бот вежливо отказывает без LLM-вызова
+
+### Проверка метрик после нескольких запросов
+
+```bash
+# Счётчик запросов
+curl -s http://localhost:9091/metrics | grep pfa_requests_total
+
+# Категоризация по методу (rules / embedding / llm / fallback)
+curl -s http://localhost:9091/metrics | grep pfa_categorization_total
+
+# Guardrail срабатывания
+curl -s http://localhost:9091/metrics | grep pfa_guardrail_blocked_total
+```
+
+---
+
 ## Команды бота
 
 | Команда | Описание |
@@ -127,7 +174,7 @@ src/
 │   ├── guard.py            # Pre-flight guard (rate limit, PII)
 │   ├── prompts.py          # Системный промпт
 │   ├── tools.py            # LangGraph @tool definitions
-│   └── orchestrator.py     # ReAct агент (Mistral → Qwen fallback)
+│   └── orchestrator.py     # ReAct агент (Mistral → GPT-4o-mini fallback)
 └── bot/
     ├── handlers.py         # aiogram handlers
     └── main.py             # Точка входа

@@ -12,14 +12,18 @@ flowchart LR
 
     TG["📱 Telegram\nМессенджер — транспортный слой\nдля сообщений, файлов, кнопок"]
     Mistral["🤖 Mistral API\nОсновной LLM-провайдер\nOpenAI-compatible REST"]
+    OpenAI["☁️ OpenAI API\nFallback LLM (GPT-4o-mini)\nOpenAI-compatible REST"]
     PriceAPI["💰 Price Comparison API\nopt-in\nПоиск альтернативных цен"]
+    Langfuse["🔍 Langfuse\nLLM трейсинг\n(опционально, self-hosted)"]
 
     User -->|"файлы + сообщения"| TG
     TG -->|"webhook апдейты"| PFA
     PFA -->|"ответы + кнопки"| TG
     TG --> User
-    PFA -->|"LLM inference"| Mistral
+    PFA -->|"LLM inference (основной)"| Mistral
+    PFA -->|"LLM inference (fallback)"| OpenAI
     PFA -->|"price lookup"| PriceAPI
+    PFA -->|"traces (если включено)"| Langfuse
 ```
 
 ## Границы системы
@@ -28,13 +32,13 @@ flowchart LR
 - Telegram Bot сервер (aiogram)
 - Agent Orchestrator (LangGraph)
 - Все бизнес-компоненты (Categorizer, Limit Engine, Report Generator и др.)
-- Local LLM Qwen3.5-9B (Ollama) — fallback при недоступности Mistral API
+- OpenAI GPT-4o-mini — fallback при недоступности Mistral API (внешний API)
 - Session Storage (JSON-файлы)
 - Observability stack (Prometheus, Grafana)
 
 **Вне PFA (внешние системы):**
 - Telegram: только транспорт, PFA не хранит Telegram-данные
-- Mistral API: основной LLM; при таймауте/ошибке → fallback на локальный Qwen3.5-9B
+- Mistral API: основной LLM; при таймауте/ошибке → fallback на OpenAI GPT-4o-mini
 - Price API: опционально, с fallback на оффлайн-базу
 
 **Вне scope PoC:**

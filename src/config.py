@@ -32,3 +32,10 @@ PRICES_PATH: Path = DATA_DIR / "prices.json"
 
 # Observability
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+METRICS_PORT: int = int(os.getenv("METRICS_PORT", "9090"))
+
+# Langfuse tracing (optional)
+LANGFUSE_ENABLED: bool = os.getenv("LANGFUSE_ENABLED", "false").lower() == "true"
+LANGFUSE_PUBLIC_KEY: str = os.getenv("LANGFUSE_PUBLIC_KEY", "")
+LANGFUSE_SECRET_KEY: str = os.getenv("LANGFUSE_SECRET_KEY", "")
+LANGFUSE_HOST: str = os.getenv("LANGFUSE_HOST", "https://cloud.langfuse.com")

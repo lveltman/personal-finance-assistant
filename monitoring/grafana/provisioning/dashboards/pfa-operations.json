@@ -1,0 +1,245 @@
+{
+  "title": "PFA Operations",
+  "uid": "pfa-ops",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Request Rate (req/min)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 0, "w": 8, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(pfa_requests_total[1m])) * 60",
+          "legendFormat": "{{status}}",
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "reqpm", "color": { "mode": "palette-classic" } }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Active Requests",
+      "type": "stat",
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+      "targets": [
+        {
+          "expr": "pfa_active_requests",
+          "legendFormat": "active",
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "thresholds": { "steps": [
+          { "color": "green", "value": null },
+          { "color": "yellow", "value": 5 },
+          { "color": "red", "value": 20 }
+        ] } }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" }
+    },
+    {
+      "id": 3,
+      "title": "Error Rate",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+      "targets": [
+        {
+          "expr": "sum(rate(pfa_errors_total[5m]))",
+          "legendFormat": "errors/s",
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "thresholds": { "steps": [
+          { "color": "green", "value": null },
+          { "color": "red", "value": 0.01 }
+        ] } }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" }
+    },
+    {
+      "id": 4,
+      "title": "Fallback Rate",
+      "type": "stat",
+      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+      "targets": [
+        {
+          "expr": "sum(rate(pfa_fallback_total[5m]))",
+          "legendFormat": "fallbacks/s",
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "thresholds": { "steps": [
+          { "color": "green", "value": null },
+          { "color": "yellow", "value": 0.01 },
+          { "color": "red", "value": 0.1 }
+        ] } }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" }
+    },
+    {
+      "id": 5,
+      "title": "Guardrail Blocks",
+      "type": "stat",
+      "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
+      "targets": [
+        {
+          "expr": "sum(rate(pfa_guardrail_blocked_total[5m]))",
+          "legendFormat": "blocked/s",
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short" }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" }
+    },
+    {
+      "id": 6,
+      "title": "p50 / p95 Latency (seconds)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(pfa_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p50",
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" }
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(pfa_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95",
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s", "color": { "mode": "palette-classic" } }
+      }
+    },
+    {
+      "id": 7,
+      "title": "LLM Call Duration p95 (seconds)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(pfa_llm_call_duration_seconds_bucket[5m])) by (le, model))",
+          "legendFormat": "p95 {{model}}",
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s", "color": { "mode": "palette-classic" } }
+      }
+    },
+    {
+      "id": 8,
+      "title": "LLM Tokens Total",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(pfa_llm_tokens_total[5m])) by (model, token_type) * 60",
+          "legendFormat": "{{model}} {{token_type}}",
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "color": { "mode": "palette-classic" } }
+      }
+    },
+    {
+      "id": 9,
+      "title": "Categorization Method",
+      "type": "piechart",
+      "gridPos": { "x": 12, "y": 16, "w": 6, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum(increase(pfa_categorization_total[1h])) by (method)",
+          "legendFormat": "{{method}}",
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" }
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "id": 10,
+      "title": "Tool Call Duration p95 by Tool",
+      "type": "bargauge",
+      "gridPos": { "x": 18, "y": 16, "w": 6, "h": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(pfa_tool_call_duration_seconds_bucket[5m])) by (le, tool_name))",
+          "legendFormat": "{{tool_name}}",
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s" }
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "horizontal" }
+    },
+    {
+      "id": 11,
+      "title": "Errors by Component",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 24, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(pfa_errors_total[5m])) by (component)",
+          "legendFormat": "{{component}}",
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "color": { "mode": "palette-classic" } }
+      }
+    },
+    {
+      "id": 12,
+      "title": "Guardrail Blocks by Reason",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 24, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(pfa_guardrail_blocked_total[5m])) by (reason)",
+          "legendFormat": "{{reason}}",
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "${datasource}" }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "color": { "mode": "palette-classic" } }
+      }
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "Prometheus" },
+        "hide": 0
+      }
+    ]
+  }
+}
