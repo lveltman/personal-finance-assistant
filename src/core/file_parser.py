@@ -29,9 +29,10 @@ REQUIRED_COLUMNS_MAP = {
 }
 
 
-def parse_file(file_bytes: bytes, filename: str) -> list[dict]:
+def parse_file(file_bytes: bytes, filename: str) -> tuple[list[dict], list[dict]]:
     """
     Parse xlsx or csv bytes into list of {date, amount, merchant, category}.
+    Returns (records, skipped) where skipped is a list of {row, reason, raw}.
     Raises ValueError on bad format.
     """
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
@@ -86,45 +87,61 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def _to_records(df: pd.DataFrame) -> list[dict]:
+def _to_records(df: pd.DataFrame) -> tuple[list[dict], list[dict]]:
     records = []
-    skipped = 0
-    for _, row in df.iterrows():
+    skipped = []
+    for i, row in df.iterrows():
+        row_num = i + 2  # 1-based, +1 for header
+        raw_preview = {k: str(row.get(k, ""))[:40] for k in ("date", "amount", "merchant") if k in df.columns}
+
+        date_raw = row["date"]
+        amount_raw_val = row["amount"]
+
+        # Silently skip rows where both date and amount are missing (junk/empty rows)
+        if pd.isna(date_raw) and pd.isna(amount_raw_val):
+            continue
+
+        # Validate amount
+        if pd.isna(amount_raw_val):
+            skipped.append({"row": row_num, "reason": "сумма не указана", "raw": raw_preview})
+            continue
         try:
-            amount = float(str(row["amount"]).replace(",", ".").replace(" ", "").replace("\xa0", ""))
-            date_raw = row["date"]
-            if pd.isna(date_raw):
-                skipped += 1
-                continue
-            if isinstance(date_raw, (datetime,)):
-                date_str = date_raw.strftime("%Y-%m-%d")
-            else:
-                parsed = pd.to_datetime(str(date_raw), dayfirst=True, errors="coerce")
-                if pd.isna(parsed):
-                    skipped += 1
-                    continue
-                date_str = parsed.strftime("%Y-%m-%d")
-
-            merchant = str(row.get("merchant", "Неизвестно")).strip()
-            category = str(row.get("category", "")).strip() if "category" in df.columns else ""
-
-            try:
-                tx = Transaction(
-                    date=date_str,
-                    amount=abs(amount),
-                    merchant=merchant,
-                    category=category,
-                )
-                records.append(tx.model_dump())
-            except ValidationError:
-                skipped += 1
+            amount_str = str(amount_raw_val).replace(",", ".").replace(" ", "").replace("\xa0", "")
+            amount = float(amount_str)
         except (ValueError, TypeError):
-            skipped += 1
+            skipped.append({"row": row_num, "reason": "некорректная сумма", "raw": raw_preview})
+            continue
+
+        # Validate date
+        if pd.isna(date_raw):
+            skipped.append({"row": row_num, "reason": "дата отсутствует", "raw": raw_preview})
+            continue
+        if isinstance(date_raw, datetime):
+            date_str = date_raw.strftime("%Y-%m-%d")
+        else:
+            parsed = pd.to_datetime(str(date_raw), dayfirst=True, errors="coerce")
+            if pd.isna(parsed):
+                skipped.append({"row": row_num, "reason": f"не удалось распознать дату '{date_raw}'", "raw": raw_preview})
+                continue
+            date_str = parsed.strftime("%Y-%m-%d")
+
+        # Merchant: default to "Неизвестно" if missing
+        merchant_raw = row.get("merchant") if "merchant" in df.columns else None
+        merchant = str(merchant_raw).strip() if merchant_raw is not None and not pd.isna(merchant_raw) else "Неизвестно"
+
+        raw_cat = row.get("category") if "category" in df.columns else None
+        category = "" if raw_cat is None or pd.isna(raw_cat) else str(raw_cat).strip()
+
+        try:
+            tx = Transaction(date=date_str, amount=abs(amount), merchant=merchant, category=category)
+            records.append(tx.model_dump())
+        except ValidationError as e:
+            skipped.append({"row": row_num, "reason": str(e.errors()[0]["msg"]), "raw": raw_preview})
 
     if skipped:
-        log.info("file_parser_skipped", skipped=skipped)
+        log.info("file_parser_skipped", skipped=len(skipped))
     if not records:
         raise ValueError("Файл не содержит корректных транзакций. Проверьте формат данных.")
 
     log.info("file_parsed", rows=len(records))
-    return records
+    return records, skipped

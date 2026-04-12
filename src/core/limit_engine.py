@@ -4,6 +4,12 @@ from datetime import date, datetime, timedelta
 
 from src.core.models import Transaction
 
+# Category names that mean "sum of ALL spending"
+TOTAL_ALIASES = {
+    "общие траты", "все траты", "общий бюджет", "итого", "total", "all",
+    "бюджет", "общее", "расходы",
+}
+
 
 def _parse_date(d: str) -> date:
     return datetime.strptime(d, "%Y-%m-%d").date()
@@ -12,6 +18,8 @@ def _parse_date(d: str) -> date:
 def _period_start(period: str) -> date:
     today = date.today()
     period = period.lower().strip()
+    if period in ("day", "день", "сегодня"):
+        return today
     if period in ("week", "неделя", "неделю"):
         return today - timedelta(days=today.weekday())
     if period in ("month", "месяц", "месяца"):
@@ -45,7 +53,10 @@ def check_violations(transactions: list[dict], limits: dict) -> list[dict]:
         period = limit_info.get("period", "month")
         since = _period_start(period)
         totals = _aggregate_by_category(transactions, since)
-        spent = totals.get(category, 0.0)
+        if category.lower() in TOTAL_ALIASES:
+            spent = sum(totals.values())
+        else:
+            spent = totals.get(category, 0.0)
         if spent > amount_limit:
             overage = spent - amount_limit
             overage_pct = round((overage / amount_limit) * 100, 1) if amount_limit else 0

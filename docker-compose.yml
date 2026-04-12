@@ -5,7 +5,7 @@ services:
     build: .
     env_file: .env
     volumes:
-      - sessions_data:/app/data/sessions
+      - ./data/sessions:/app/data/sessions
     restart: unless-stopped
     networks:
       - pfa_net
@@ -23,10 +23,6 @@ services:
   #   restart: unless-stopped
   #   networks:
   #     - pfa_net
-
-volumes:
-  sessions_data:
-  # ollama_data:  # раскомментировать вместе с сервисом ollama
 
 networks:
   pfa_net:

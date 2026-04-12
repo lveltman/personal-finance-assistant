@@ -7,6 +7,7 @@ from langgraph.prebuilt import create_react_agent
 
 from src import config
 from src.agent import prompts
+from src.agent.callbacks import ToolLoggingCallback
 from src.agent.guard import GuardRefusal, run_preflight
 from src.agent.tools import ALL_TOOLS, set_context
 from src.core import session as session_store
@@ -62,8 +63,11 @@ async def process_message(telegram_id: int, user_text: str) -> str:
     # Load session
     sess = session_store.load_session(user_hash)
 
-    # Inject session context into tools via contextvars
-    set_context(user_hash, sess)
+    # Init agent first so _llm is populated before injecting into tools
+    agent = _get_agent()
+
+    # Inject session + LLM into tools via contextvars
+    set_context(user_hash, sess, llm=_llm)
 
     # Build messages: system prompt + conversation history + current message
     system_prompt = prompts.build_system_prompt(sess)
@@ -78,13 +82,13 @@ async def process_message(telegram_id: int, user_text: str) -> str:
             messages.append(AIMessage(content=msg["content"]))
 
     messages.append(HumanMessage(content=clean_text))
-
-    # Run ReAct agent
-    agent = _get_agent()
     try:
         result = await agent.ainvoke(
             {"messages": messages},
-            config={"recursion_limit": config.LLM_MAX_STEPS * 2},
+            config={
+                "recursion_limit": config.LLM_MAX_STEPS * 2,
+                "callbacks": [ToolLoggingCallback(user_hash=user_hash)],
+            },
         )
         # Extract final AI response
         final_message = result["messages"][-1]
@@ -113,28 +117,62 @@ async def process_file(telegram_id: int, file_bytes: bytes, filename: str) -> st
 
     user_hash = session_store.get_user_hash(telegram_id)
     sess = session_store.load_session(user_hash)
+    _get_agent()  # ensure _llm is initialized
 
     try:
-        transactions = parse_file(file_bytes, filename)
+        transactions, skipped_rows = parse_file(file_bytes, filename)
     except ValueError as e:
         return f"❌ Ошибка при разборе файла: {e}"
 
-    # Categorize transactions (keyword rules only for speed)
-    transactions = batch_categorize(transactions)
+    # Categorize transactions (keyword rules → LLM fallback)
+    transactions = batch_categorize(transactions, llm=_llm)
 
-    sess["transactions"] = transactions
+    # Merge with existing transactions (deduplicate by date+amount+merchant)
+    existing = sess.get("transactions", [])
+    existing_keys = {
+        (tx["date"], tx["amount"], tx["merchant"])
+        for tx in existing
+    }
+    new_txs = [
+        tx for tx in transactions
+        if (tx["date"], tx["amount"], tx["merchant"]) not in existing_keys
+    ]
+    merged = existing + new_txs
+
+    sess["transactions"] = merged
     sess["last_file_ts"] = datetime.utcnow().isoformat()
     session_store.save_session(user_hash, sess)
 
     from src.core.limit_engine import get_spending_summary
-    summary = get_spending_summary(transactions, "month")
+    summary = get_spending_summary(merged, "month")
     top = "\n".join(
         f"  • {cat}: {amount:.0f}₽"
         for cat, amount in summary["top_categories"]
     )
-    return (
-        f"✅ Загружено {len(transactions)} транзакций из {filename}\n\n"
+    added_count = len(new_txs)
+    dup_count = len(transactions) - added_count
+    dup_note = f" (пропущено дублей: {dup_count})" if dup_count else ""
+    msg = (
+        f"✅ Добавлено {added_count} новых транзакций из {filename}{dup_note}\n"
+        f"Всего в базе: {len(merged)}\n\n"
         f"📊 Расходы за текущий месяц: {summary['total']:.0f}₽\n"
         f"Топ категории:\n{top}\n\n"
         f"Задавай вопросы про свои расходы!"
     )
+    if skipped_rows:
+        lines = [f"\n⚠️ Пропущено строк из файла: {len(skipped_rows)}"]
+        for s in skipped_rows[:5]:
+            raw = s["raw"]
+            date_hint = raw.get("date", "")
+            merchant_hint = raw.get("merchant", "")
+            if date_hint and date_hint != "nan":
+                hint = f"напиши: «{date_hint} {merchant_hint} <сумма>₽»"
+            elif merchant_hint and merchant_hint != "nan":
+                hint = f"напиши: «{merchant_hint} <сумма>₽»"
+            else:
+                hint = "добавь вручную текстом"
+            lines.append(f"  • Строка {s['row']}: {s['reason']} → {hint}")
+        if len(skipped_rows) > 5:
+            lines.append(f"  • ... и ещё {len(skipped_rows) - 5} строк")
+        msg += "\n".join(lines)
+    return msg

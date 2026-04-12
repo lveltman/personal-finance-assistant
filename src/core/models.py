@@ -34,7 +34,7 @@ class Transaction(BaseModel):
 
 class SpendingLimit(BaseModel):
     amount: float = Field(gt=0, description="Limit amount in rubles")
-    period: Literal["week", "month", "year"]
+    period: Literal["day", "week", "month", "year"]
 
     @field_validator("amount", mode="before")
     @classmethod
@@ -46,20 +46,21 @@ class SpendingLimit(BaseModel):
     def normalize_period(cls, v: Any) -> str:
         """Accept 'неделя', 'месяц', 'год' alongside English."""
         mapping = {
+            "день": "day", "сегодня": "day", "day": "day",
             "неделя": "week", "неделю": "week", "week": "week",
             "месяц": "month", "month": "month",
             "год": "year", "year": "year",
         }
         normalized = mapping.get(str(v).lower().strip())
         if not normalized:
-            raise ValueError(f"Unknown period '{v}'. Use: week, month, year")
+            raise ValueError(f"Unknown period '{v}'. Use: day, week, month, year")
         return normalized
 
 
 class SetLimitParams(BaseModel):
     category: str = Field(min_length=1)
     amount: float = Field(gt=0)
-    period: Literal["week", "month", "year"]
+    period: Literal["day", "week", "month", "year"]
 
     @field_validator("amount", mode="before")
     @classmethod
@@ -70,13 +71,14 @@ class SetLimitParams(BaseModel):
     @classmethod
     def normalize_period(cls, v: Any) -> str:
         mapping = {
+            "день": "day", "сегодня": "day", "day": "day",
             "неделя": "week", "неделю": "week", "week": "week",
             "месяц": "month", "month": "month",
             "год": "year", "year": "year",
         }
         normalized = mapping.get(str(v).lower().strip())
         if not normalized:
-            raise ValueError(f"Unknown period '{v}'. Use: week, month, year")
+            raise ValueError(f"Unknown period '{v}'. Use: day, week, month, year")
         return normalized
 
 

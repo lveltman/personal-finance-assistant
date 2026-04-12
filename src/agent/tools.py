@@ -226,6 +226,222 @@ def save_pending_confirmation(action: str, params: str) -> str:
     return f"Действие сохранено для подтверждения: {action} с параметрами {params}"
 
 
+def _normalize_tx_date(tx: dict, reference: datetime) -> dict:
+    """Use dateparser to validate/fix the date returned by LLM."""
+    try:
+        import dateparser
+        parsed = dateparser.parse(
+            tx["date"],
+            languages=["ru", "en"],
+            settings={"RELATIVE_BASE": reference, "RETURN_AS_TIMEZONE_AWARE": False},
+        )
+        if parsed:
+            tx["date"] = parsed.strftime("%Y-%m-%d")
+    except Exception:
+        pass  # keep whatever LLM returned
+    return tx
+
+
+@tool
+def parse_transactions_from_text(text: str) -> str:
+    """Parse free-form text into structured transactions and save them to session.
+
+    Use this when the user writes transactions as plain text instead of uploading a file.
+    Examples: 'купил кофе 450₽', 'март: starbucks 450, лента 1200, такси 850'.
+
+    Args:
+        text: Free-form text containing one or more transactions
+    """
+    llm = _llm_var.get(None)
+    if llm is None:
+        return "❌ LLM недоступен для извлечения транзакций."
+
+    now = datetime.utcnow()
+    today = now.strftime("%Y-%m-%d")
+
+    extraction_prompt = f"""Сегодня {today}. Используй эту дату как точку отсчёта для всех относительных дат.
+
+Извлеки транзакции из текста пользователя в структурированный JSON.
+
+Текст: {text}
+
+Верни JSON строго в формате:
+{{
+  "transactions": [
+    {{"date": "YYYY-MM-DD", "amount": 123.0, "merchant": "название", "category": ""}}
+  ],
+  "note": "необязательное пояснение если что-то неясно"
+}}
+
+Правила:
+- date: вычисли точную дату ISO 8601 от сегодня ({today}). Примеры: "вчера"=вчерашняя дата, "три дня назад"=сегодня минус 3 дня, "в прошлую пятницу"=дата прошлой пятницы. Форматы дат: "2026-03-05", "2026 03 05", "05.03.2026", "5 марта" — все корректны
+- Если дата не указана — используй сегодня ({today})
+- Если один временной контекст для нескольких трат ("вчера купила X, Y и Z") — все транзакции получают ОДИНАКОВУЮ дату
+- amount: только число, всегда положительное
+- merchant: ЛЮБОЙ текст между датой и суммой — это merchant. Даже если слово похоже на описание или тег — всё равно запиши его в merchant. НИКОГДА не оставляй merchant пустым, если в строке есть хоть какое-то слово
+- category: оставь пустым
+
+Примеры:
+- "Starbucks 450" → date={today}, merchant="Starbucks", amount=450
+- "2026-03-05 Пятёрочка 1200" → date="2026-03-05", merchant="Пятёрочка", amount=1200
+- "2026 03 05 BezSummy 500" → date="2026-03-05", merchant="BezSummy", amount=500
+- "вчера такси 850 и кофе 200" → две транзакции с датой вчера"""
+
+    try:
+        extractor = llm.with_structured_output(ExtractedTransactions)
+        result: ExtractedTransactions = extractor.invoke(extraction_prompt)
+    except Exception:
+        # Fallback: plain LLM call + manual JSON parse
+        try:
+            from langchain_core.messages import HumanMessage
+            raw = llm.invoke([HumanMessage(content=extraction_prompt)])
+            import re
+            json_match = re.search(r"\{.*\}", raw.content, re.DOTALL)
+            if not json_match:
+                return "❌ Не удалось распознать транзакции из текста. Попробуй загрузить файл .xlsx или .csv"
+            data = json.loads(json_match.group())
+            result = ExtractedTransactions.model_validate(data)
+        except Exception as e:
+            log.error("text_extraction_failed", error=str(e))
+            return "❌ Не удалось распознать транзакции из текста. Попробуй загрузить файл .xlsx или .csv"
+
+    if not result.transactions:
+        return "❌ В тексте не найдено транзакций. Попробуй написать например: «кофе 450₽, такси 850₽»"
+
+    # Normalize dates with dateparser as safety net after LLM extraction
+    tx_dicts = [_normalize_tx_date(tx.model_dump(), now) for tx in result.transactions]
+    tx_dicts = batch_categorize(tx_dicts, llm=llm)
+
+    sess = _session()
+    existing = sess.get("transactions", [])
+    sess["transactions"] = existing + tx_dicts
+    sess["last_file_ts"] = datetime.utcnow().isoformat()
+    _save()
+
+    log.info("transactions_parsed_from_text", count=len(tx_dicts))
+
+    all_transactions = sess.get("transactions", [])
+    summary = limit_engine.get_spending_summary(all_transactions, "month")
+    by_cat = sorted(summary["by_category"].items(), key=lambda x: x[1], reverse=True)
+    top = "\n".join(f"  • {cat}: {amount:.0f}₽" for cat, amount in by_cat[:5])
+
+    lines = [f"✅ Добавлено {len(tx_dicts)} транзакций:"]
+    for tx in tx_dicts:
+        lines.append(f"  • {tx['date']} | {tx['merchant']} | {tx['amount']:.0f}₽ | {tx['category']}")
+    if result.note:
+        lines.append(f"\nℹ️ {result.note}")
+    lines.append(f"\n📊 Расходы за месяц (всего): {summary['total']:.0f}₽")
+    lines.append(f"По категориям:\n{top}")
+    lines.append("\n[ИНСТРУКЦИЯ ДЛЯ АГЕНТА: числа выше взяты из инструмента, используй их как есть — не пересчитывай]")
+    return "\n".join(lines)
+
+
+@tool
+def recategorize_all_transactions() -> str:
+    """Re-run categorization for all transactions in session and save results.
+
+    Use this when categories are missing, show as 'nan', 'Прочее', or need to be refreshed.
+    Updates the session so future reports show correct categories.
+    """
+    sess = _session()
+    transactions = sess.get("transactions", [])
+    if not transactions:
+        return "Нет транзакций для категоризации."
+
+    uncategorized_before = sum(1 for tx in transactions if not tx.get("category") or tx.get("category") in ("", "Прочее", "nan"))
+    llm = _llm_var.get(None)
+    updated = batch_categorize(transactions, llm=llm)
+    sess["transactions"] = updated
+    _save()
+
+    uncategorized_after = sum(1 for tx in updated if tx.get("category") in ("Прочее", ""))
+    categorized = len(updated) - uncategorized_after
+
+    from collections import Counter
+    counts = Counter(tx.get("category", "Прочее") for tx in updated)
+    top = "\n".join(f"  • {cat}: {n} транзакций" for cat, n in counts.most_common(5))
+
+    log.info("recategorized", total=len(updated), categorized=categorized)
+    return (
+        f"✅ Категоризация обновлена для {len(updated)} транзакций\n"
+        f"Было без категории: {uncategorized_before} → стало: {uncategorized_after}\n\n"
+        f"Топ категории:\n{top}"
+    )
+
+
+@tool
+def generate_refund_letter(
+    merchant: str,
+    product: str,
+    amount: float,
+    purchase_date: str,
+    reason: str = "товар не подошёл",
+) -> str:
+    """Generate a ready-to-send refund request letter.
+
+    Use when the user wants to return a purchase and needs a formal letter.
+
+    Args:
+        merchant: Store or brand name (e.g. 'NYX', 'Ozon')
+        product: Product name and description (e.g. 'тональный крем NYX Stay Matte')
+        amount: Purchase amount in rubles
+        purchase_date: Purchase date in any format (e.g. '2026-03-15' or '15 марта')
+        reason: Reason for return (default: 'товар не подошёл')
+    """
+    llm = _llm_var.get(None)
+    if llm is None:
+        return _refund_letter_template(merchant, product, amount, purchase_date, reason)
+
+    prompt = f"""Составь официальное заявление на возврат товара.
+Используй деловой стиль. Верни ТОЛЬКО текст заявления, без пояснений.
+
+Данные:
+- Магазин/бренд: {merchant}
+- Товар: {product}
+- Сумма: {amount:.0f}₽
+- Дата покупки: {purchase_date}
+- Причина возврата: {reason}
+
+Структура заявления:
+1. Шапка: Кому (директору/в службу поддержки {merchant}), От кого (Покупатель — оставь поле [ФИО])
+2. Заголовок: «Заявление о возврате товара»
+3. Тело: суть обращения с датой, товаром, суммой, причиной и ссылкой на закон о ЗПП (ст. 25)
+4. Требование: вернуть денежные средства в размере {amount:.0f}₽
+5. Дата и подпись: [Дата], [Подпись / ФИО]"""
+
+    try:
+        from langchain_core.messages import HumanMessage
+        response = llm.invoke([HumanMessage(content=prompt)])
+        letter = response.content.strip()
+    except Exception as e:
+        log.warning("refund_letter_llm_failed", error=str(e))
+        letter = _refund_letter_template(merchant, product, amount, purchase_date, reason)
+
+    return f"📄 Заявление на возврат:\n\n{letter}\n\n---\n💡 Заполни поля [ФИО] и [Дата] перед отправкой."
+
+
+def _refund_letter_template(
+    merchant: str, product: str, amount: float, purchase_date: str, reason: str
+) -> str:
+    """Fallback template if LLM is unavailable."""
+    return f"""Директору / В службу поддержки {merchant}
+От: [ФИО покупателя]
+
+ЗАЯВЛЕНИЕ О ВОЗВРАТЕ ТОВАРА
+
+Прошу принять возврат товара и вернуть уплаченные денежные средства.
+
+Товар: {product}
+Дата покупки: {purchase_date}
+Сумма: {amount:.0f}₽
+Причина возврата: {reason}
+
+На основании ст. 25 Закона РФ «О защите прав потребителей» прошу вернуть денежные средства в размере {amount:.0f} ({"".join([str(int(amount))])}) рублей в течение 10 дней с момента получения данного заявления.
+
+[Дата]
+[Подпись / ФИО]"""
+
+
 ALL_TOOLS = [
     load_transactions,
     get_spending_report,
@@ -233,7 +449,10 @@ ALL_TOOLS = [
     list_limits,
     check_limit_violations,
     categorize_transaction,
+    recategorize_all_transactions,
     find_cheaper,
     check_refund,
+    generate_refund_letter,
     save_pending_confirmation,
+    parse_transactions_from_text,
 ]

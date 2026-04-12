@@ -3,6 +3,7 @@ import io
 
 import structlog
 from aiogram import Bot, F, Router
+from aiogram.enums import ParseMode
 from aiogram.filters import Command
 from aiogram.types import (
     CallbackQuery,
@@ -13,6 +14,7 @@ from aiogram.types import (
 
 from src import config
 from src.agent import orchestrator
+from src.bot.formatting import md_to_html
 from src.core import session as session_store
 
 log = structlog.get_logger()
@@ -105,21 +107,23 @@ async def handle_confirmation(callback: CallbackQuery) -> None:
         await callback.answer("Действие устарело", show_alert=True)
         return
 
-    if action == "set_limit":
-        import json
-        params = json.loads(pending.get("params", "{}"))
-        if "limits" not in sess:
-            sess["limits"] = {}
-        sess["limits"][params["category"]] = {
-            "amount": params["amount"],
-            "period": params["period"],
-        }
-        sess["pending_confirmation"] = None
-        session_store.save_session(user_hash, sess)
-        await callback.message.edit_text(
-            f"✅ Лимит установлен: {params['category']} — {params['amount']}₽ / {params['period']}"
-        )
+    import json
+    params = json.loads(pending.get("params", "{}"))
+    sess["pending_confirmation"] = None
+    session_store.save_session(user_hash, sess)
+
+    # Apply the action
+    confirmation_text = f"Да, подтверждаю: {action} с параметрами {pending.get('params', '')}"
+    await callback.message.edit_text("⏳ Применяю...")
     await callback.answer()
+
+    # Resume agent so it can continue the conversation after confirmation
+    try:
+        response = await orchestrator.process_message(callback.from_user.id, confirmation_text)
+        await callback.message.edit_text(md_to_html(response), parse_mode=ParseMode.HTML)
+    except Exception as e:
+        log.error("confirmation_handler_error", error=str(e))
+        await callback.message.edit_text("✅ Действие выполнено.")
 
 
 @router.callback_query(F.data == "cancel")
@@ -153,9 +157,9 @@ async def handle_text(message: Message) -> None:
                 InlineKeyboardButton(text="✅ Да", callback_data=f"confirm:{action}"),
                 InlineKeyboardButton(text="❌ Нет", callback_data="cancel"),
             ]])
-            await status_msg.edit_text(response, reply_markup=keyboard)
+            await status_msg.edit_text(md_to_html(response), reply_markup=keyboard, parse_mode=ParseMode.HTML)
         else:
-            await status_msg.edit_text(response)
+            await status_msg.edit_text(md_to_html(response), parse_mode=ParseMode.HTML)
 
     except Exception as e:
         log.error("text_handler_error", error=str(e), user_id=message.from_user.id)
